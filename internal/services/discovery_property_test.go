@@ -11,10 +11,10 @@ import (
 	"superview/internal/models"
 	"superview/internal/utils"
 
+	"github.com/glebarez/sqlite"
 	"github.com/leanovate/gopter"
 	"github.com/leanovate/gopter/gen"
 	"github.com/leanovate/gopter/prop"
-	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -43,9 +43,9 @@ func setupDiscoveryTestDB(t *testing.T) *gorm.DB {
 
 // mockDiscoveryRepository implements DiscoveryRepository for testing
 type mockDiscoveryRepository struct {
-	db    *gorm.DB
-	mu    sync.RWMutex
-	tasks map[uint]*models.DiscoveryTask
+	db     *gorm.DB
+	mu     sync.RWMutex
+	tasks  map[uint]*models.DiscoveryTask
 	nextID uint
 }
 
@@ -60,28 +60,28 @@ func newMockDiscoveryRepository(db *gorm.DB) *mockDiscoveryRepository {
 func (r *mockDiscoveryRepository) CreateTask(task *models.DiscoveryTask) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	task.ID = r.nextID
 	r.nextID++
 	task.CreatedAt = time.Now()
 	task.UpdatedAt = time.Now()
-	
+
 	// Store a copy
 	taskCopy := *task
 	r.tasks[task.ID] = &taskCopy
-	
+
 	return nil
 }
 
 func (r *mockDiscoveryRepository) GetTask(id uint) (*models.DiscoveryTask, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	task, exists := r.tasks[id]
 	if !exists {
 		return nil, fmt.Errorf("task not found: %d", id)
 	}
-	
+
 	// Return a copy
 	taskCopy := *task
 	return &taskCopy, nil
@@ -90,22 +90,22 @@ func (r *mockDiscoveryRepository) GetTask(id uint) (*models.DiscoveryTask, error
 func (r *mockDiscoveryRepository) UpdateTask(task *models.DiscoveryTask) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	if _, exists := r.tasks[task.ID]; !exists {
 		return fmt.Errorf("task not found: %d", task.ID)
 	}
-	
+
 	task.UpdatedAt = time.Now()
 	taskCopy := *task
 	r.tasks[task.ID] = &taskCopy
-	
+
 	return nil
 }
 
 func (r *mockDiscoveryRepository) DeleteTask(id uint) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	delete(r.tasks, id)
 	return nil
 }
@@ -113,7 +113,7 @@ func (r *mockDiscoveryRepository) DeleteTask(id uint) error {
 func (r *mockDiscoveryRepository) ListTasks(offset, limit int, status string) ([]*models.DiscoveryTask, int64, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	var tasks []*models.DiscoveryTask
 	for _, task := range r.tasks {
 		if status == "" || task.Status == status {
@@ -121,7 +121,7 @@ func (r *mockDiscoveryRepository) ListTasks(offset, limit int, status string) ([
 			tasks = append(tasks, &taskCopy)
 		}
 	}
-	
+
 	return tasks, int64(len(tasks)), nil
 }
 
@@ -137,9 +137,9 @@ func (r *mockDiscoveryRepository) GetResultsByTaskID(taskID uint) ([]*models.Dis
 
 // mockNodeRepository implements NodeRepository for testing
 type mockNodeRepository struct {
-	db    *gorm.DB
-	mu    sync.RWMutex
-	nodes map[uint]*models.Node
+	db     *gorm.DB
+	mu     sync.RWMutex
+	nodes  map[uint]*models.Node
 	nextID uint
 }
 
@@ -154,27 +154,27 @@ func newMockNodeRepository(db *gorm.DB) *mockNodeRepository {
 func (r *mockNodeRepository) Create(node *models.Node) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	node.ID = r.nextID
 	r.nextID++
 	node.CreatedAt = time.Now()
 	node.UpdatedAt = time.Now()
-	
+
 	nodeCopy := *node
 	r.nodes[node.ID] = &nodeCopy
-	
+
 	return r.db.Create(node).Error
 }
 
 func (r *mockNodeRepository) GetByID(id uint) (*models.Node, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	node, exists := r.nodes[id]
 	if !exists {
 		return nil, fmt.Errorf("node not found: %d", id)
 	}
-	
+
 	nodeCopy := *node
 	return &nodeCopy, nil
 }
@@ -182,36 +182,36 @@ func (r *mockNodeRepository) GetByID(id uint) (*models.Node, error) {
 func (r *mockNodeRepository) GetByName(name string) (*models.Node, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	for _, node := range r.nodes {
 		if node.Name == name {
 			nodeCopy := *node
 			return &nodeCopy, nil
 		}
 	}
-	
+
 	return nil, fmt.Errorf("node not found: %s", name)
 }
 
 func (r *mockNodeRepository) Update(node *models.Node) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	if _, exists := r.nodes[node.ID]; !exists {
 		return fmt.Errorf("node not found: %d", node.ID)
 	}
-	
+
 	node.UpdatedAt = time.Now()
 	nodeCopy := *node
 	r.nodes[node.ID] = &nodeCopy
-	
+
 	return nil
 }
 
 func (r *mockNodeRepository) Delete(id uint) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	delete(r.nodes, id)
 	return nil
 }
@@ -219,20 +219,20 @@ func (r *mockNodeRepository) Delete(id uint) error {
 func (r *mockNodeRepository) List(offset, limit int) ([]*models.Node, int64, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	var nodes []*models.Node
 	for _, node := range r.nodes {
 		nodeCopy := *node
 		nodes = append(nodes, &nodeCopy)
 	}
-	
+
 	return nodes, int64(len(nodes)), nil
 }
 
 func (r *mockNodeRepository) GetByStatus(status string) ([]*models.Node, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	var nodes []*models.Node
 	for _, node := range r.nodes {
 		if node.Status == status {
@@ -240,33 +240,33 @@ func (r *mockNodeRepository) GetByStatus(status string) ([]*models.Node, error) 
 			nodes = append(nodes, &nodeCopy)
 		}
 	}
-	
+
 	return nodes, nil
 }
 
 func (r *mockNodeRepository) ExistsByName(name string) (bool, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	for _, node := range r.nodes {
 		if node.Name == name {
 			return true, nil
 		}
 	}
-	
+
 	return false, nil
 }
 
 func (r *mockNodeRepository) ExistsByHostPort(host string, port int) (bool, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	for _, node := range r.nodes {
 		if node.Host == host && node.Port == port {
 			return true, nil
 		}
 	}
-	
+
 	return false, nil
 }
 
@@ -356,13 +356,12 @@ func genProgressState() gopter.Gen {
 			FailedIPs  int
 		})
 		// Ensure scanned <= total and found + failed <= scanned
-		return s.ScannedIPs <= s.TotalIPs && 
-			   s.FoundNodes <= s.ScannedIPs && 
-			   s.FailedIPs <= s.ScannedIPs &&
-			   s.FoundNodes + s.FailedIPs <= s.ScannedIPs
+		return s.ScannedIPs <= s.TotalIPs &&
+			s.FoundNodes <= s.ScannedIPs &&
+			s.FailedIPs <= s.ScannedIPs &&
+			s.FoundNodes+s.FailedIPs <= s.ScannedIPs
 	})
 }
-
 
 // ============================================================================
 // Feature: node-discovery, Property 3: Task Creation Invariants
@@ -385,11 +384,11 @@ func TestTaskCreationInvariants(t *testing.T) {
 			repo := newMockDiscoveryRepository(db)
 			nodeRepo := newMockNodeRepository(db)
 			hub := &mockWebSocketHub{}
-			
+
 			service := NewDiscoveryService(db, repo, nodeRepo, hub, nil)
-			
+
 			taskIDs := make(map[uint]bool)
-			
+
 			for i := 0; i < numTasks; i++ {
 				cidr := fmt.Sprintf("192.168.%d.0/30", i%256)
 				req := &DiscoveryRequest{
@@ -399,13 +398,13 @@ func TestTaskCreationInvariants(t *testing.T) {
 					Password:  "secret",
 					CreatedBy: "test-user",
 				}
-				
+
 				task, err := service.StartDiscovery(req)
 				if err != nil {
 					// Skip invalid CIDRs
 					continue
 				}
-				
+
 				// Check for duplicate ID
 				if taskIDs[task.ID] {
 					t.Logf("Duplicate task ID found: %d", task.ID)
@@ -413,7 +412,7 @@ func TestTaskCreationInvariants(t *testing.T) {
 				}
 				taskIDs[task.ID] = true
 			}
-			
+
 			return true
 		},
 		gen.IntRange(2, 20),
@@ -428,14 +427,14 @@ func TestTaskCreationInvariants(t *testing.T) {
 			if port < 1 || port > 65535 {
 				port = 9001
 			}
-			
+
 			db := setupDiscoveryTestDB(t)
 			repo := newMockDiscoveryRepository(db)
 			nodeRepo := newMockNodeRepository(db)
 			hub := &mockWebSocketHub{}
-			
+
 			service := NewDiscoveryService(db, repo, nodeRepo, hub, nil)
-			
+
 			cidr := fmt.Sprintf("%d.%d.%d.%d/%d", o1, o2, o3, o4, prefix)
 			req := &DiscoveryRequest{
 				CIDR:      cidr,
@@ -444,19 +443,19 @@ func TestTaskCreationInvariants(t *testing.T) {
 				Password:  "secret",
 				CreatedBy: "test-user",
 			}
-			
+
 			task, err := service.StartDiscovery(req)
 			if err != nil {
 				// Invalid input, skip
 				return true
 			}
-			
+
 			// Verify initial status is pending
 			if task.Status != models.DiscoveryStatusPending {
 				t.Logf("Expected status 'pending', got '%s'", task.Status)
 				return false
 			}
-			
+
 			return true
 		},
 		gen.UInt8(),
@@ -467,7 +466,6 @@ func TestTaskCreationInvariants(t *testing.T) {
 		gen.IntRange(1, 65535),
 	))
 
-
 	// Property 3c: Created timestamp is <= current time
 	properties.Property("created timestamp is <= current time", prop.ForAll(
 		func(o1, o2, o3, o4 uint8) bool {
@@ -475,11 +473,11 @@ func TestTaskCreationInvariants(t *testing.T) {
 			repo := newMockDiscoveryRepository(db)
 			nodeRepo := newMockNodeRepository(db)
 			hub := &mockWebSocketHub{}
-			
+
 			service := NewDiscoveryService(db, repo, nodeRepo, hub, nil)
-			
+
 			beforeCreate := time.Now()
-			
+
 			cidr := fmt.Sprintf("%d.%d.%d.%d/30", o1, o2, o3, o4)
 			req := &DiscoveryRequest{
 				CIDR:      cidr,
@@ -488,25 +486,25 @@ func TestTaskCreationInvariants(t *testing.T) {
 				Password:  "secret",
 				CreatedBy: "test-user",
 			}
-			
+
 			task, err := service.StartDiscovery(req)
 			if err != nil {
 				return true // Skip invalid inputs
 			}
-			
+
 			afterCreate := time.Now()
-			
+
 			// CreatedAt should be between beforeCreate and afterCreate
 			if task.CreatedAt.Before(beforeCreate) {
 				t.Logf("CreatedAt %v is before test start %v", task.CreatedAt, beforeCreate)
 				return false
 			}
-			
+
 			if task.CreatedAt.After(afterCreate) {
 				t.Logf("CreatedAt %v is after test end %v", task.CreatedAt, afterCreate)
 				return false
 			}
-			
+
 			return true
 		},
 		gen.UInt8(),
@@ -521,14 +519,14 @@ func TestTaskCreationInvariants(t *testing.T) {
 			if prefix < 28 {
 				prefix = 28
 			}
-			
+
 			db := setupDiscoveryTestDB(t)
 			repo := newMockDiscoveryRepository(db)
 			nodeRepo := newMockNodeRepository(db)
 			hub := &mockWebSocketHub{}
-			
+
 			service := NewDiscoveryService(db, repo, nodeRepo, hub, nil)
-			
+
 			cidr := fmt.Sprintf("%d.%d.%d.%d/%d", o1, o2, o3, o4, prefix)
 			req := &DiscoveryRequest{
 				CIDR:      cidr,
@@ -537,18 +535,23 @@ func TestTaskCreationInvariants(t *testing.T) {
 				Password:  "secret",
 				CreatedBy: "test-user",
 			}
-			
+
 			task, err := service.StartDiscovery(req)
 			if err != nil {
 				return true
 			}
-			
-			expectedCount := 1 << (32 - prefix)
+
+			cidrRange, err := utils.ParseCIDR(cidr)
+			if err != nil {
+				return true
+			}
+
+			expectedCount := cidrRange.Count()
 			if task.TotalIPs != expectedCount {
 				t.Logf("TotalIPs mismatch: expected %d, got %d", expectedCount, task.TotalIPs)
 				return false
 			}
-			
+
 			return true
 		},
 		gen.UInt8(),
@@ -560,7 +563,6 @@ func TestTaskCreationInvariants(t *testing.T) {
 
 	properties.TestingRun(t, gopter.ConsoleReporter(false))
 }
-
 
 // ============================================================================
 // Feature: node-discovery, Property 4: Progress Tracking Invariant
@@ -585,25 +587,25 @@ func TestProgressTrackingInvariant(t *testing.T) {
 			if scannedIPs < 0 {
 				scannedIPs = 0
 			}
-			
+
 			// Constrain scannedIPs to valid range
 			if scannedIPs > totalIPs {
 				// This should be rejected by the invariant
 				return true // We're testing the invariant holds when properly set
 			}
-			
+
 			task := &models.DiscoveryTask{
 				TotalIPs:   totalIPs,
 				ScannedIPs: scannedIPs,
 				Status:     models.DiscoveryStatusRunning,
 			}
-			
+
 			// Verify invariant
 			if task.ScannedIPs > task.TotalIPs {
 				t.Logf("Invariant violated: scanned %d > total %d", task.ScannedIPs, task.TotalIPs)
 				return false
 			}
-			
+
 			return true
 		},
 		gen.IntRange(1, 1000),
@@ -622,26 +624,26 @@ func TestProgressTrackingInvariant(t *testing.T) {
 			if failedIPs < 0 {
 				failedIPs = 0
 			}
-			
+
 			// Constrain to valid state
 			if foundNodes+failedIPs > scannedIPs {
 				return true // Invalid state, skip
 			}
-			
+
 			task := &models.DiscoveryTask{
 				ScannedIPs: scannedIPs,
 				FoundNodes: foundNodes,
 				FailedIPs:  failedIPs,
 				Status:     models.DiscoveryStatusRunning,
 			}
-			
+
 			// Verify invariant
 			if task.FoundNodes+task.FailedIPs > task.ScannedIPs {
 				t.Logf("Invariant violated: found %d + failed %d > scanned %d",
 					task.FoundNodes, task.FailedIPs, task.ScannedIPs)
 				return false
 			}
-			
+
 			return true
 		},
 		gen.IntRange(0, 500),
@@ -649,17 +651,16 @@ func TestProgressTrackingInvariant(t *testing.T) {
 		gen.IntRange(0, 500),
 	))
 
-
 	// Property 4c: When status is "completed", scanned_ips == total_ips
 	properties.Property("completed status implies scanned_ips == total_ips", prop.ForAll(
 		func(totalIPs int) bool {
 			if totalIPs < 1 {
 				totalIPs = 1
 			}
-			
+
 			db := setupDiscoveryTestDB(t)
 			repo := newMockDiscoveryRepository(db)
-			
+
 			// Create a completed task
 			task := &models.DiscoveryTask{
 				CIDR:       "192.168.1.0/30",
@@ -672,20 +673,20 @@ func TestProgressTrackingInvariant(t *testing.T) {
 				FailedIPs:  totalIPs,
 				CreatedBy:  "test",
 			}
-			
+
 			err := repo.CreateTask(task)
 			if err != nil {
 				t.Logf("Failed to create task: %v", err)
 				return false
 			}
-			
+
 			// Retrieve and verify
 			retrieved, err := repo.GetTask(task.ID)
 			if err != nil {
 				t.Logf("Failed to get task: %v", err)
 				return false
 			}
-			
+
 			if retrieved.Status == models.DiscoveryStatusCompleted {
 				if retrieved.ScannedIPs != retrieved.TotalIPs {
 					t.Logf("Completed task has scanned %d != total %d",
@@ -693,7 +694,7 @@ func TestProgressTrackingInvariant(t *testing.T) {
 					return false
 				}
 			}
-			
+
 			return true
 		},
 		gen.IntRange(1, 256),
@@ -711,20 +712,20 @@ func TestProgressTrackingInvariant(t *testing.T) {
 			if scannedIPs > totalIPs {
 				scannedIPs = totalIPs
 			}
-			
+
 			task := &models.DiscoveryTask{
 				TotalIPs:   totalIPs,
 				ScannedIPs: scannedIPs,
 			}
-			
+
 			progress := task.Progress()
-			
+
 			if progress < 0 || progress > 100 {
 				t.Logf("Progress out of range: %f (scanned=%d, total=%d)",
 					progress, scannedIPs, totalIPs)
 				return false
 			}
-			
+
 			return true
 		},
 		gen.IntRange(1, 1000),
@@ -733,7 +734,6 @@ func TestProgressTrackingInvariant(t *testing.T) {
 
 	properties.TestingRun(t, gopter.ConsoleReporter(false))
 }
-
 
 // ============================================================================
 // Feature: node-discovery, Property 5: Node Registration Correctness
@@ -754,26 +754,26 @@ func TestNodeRegistrationCorrectness(t *testing.T) {
 		func(o1, o2, o3, o4 uint8) bool {
 			ip := fmt.Sprintf("%d.%d.%d.%d", o1, o2, o3, o4)
 			nodeName := generateNodeName(ip)
-			
+
 			expectedName := "node-" + strings.ReplaceAll(ip, ".", "-")
-			
+
 			if nodeName != expectedName {
 				t.Logf("Name mismatch: expected %s, got %s", expectedName, nodeName)
 				return false
 			}
-			
+
 			// Verify format: node-X-X-X-X
 			if !strings.HasPrefix(nodeName, "node-") {
 				t.Logf("Name doesn't start with 'node-': %s", nodeName)
 				return false
 			}
-			
+
 			// Should not contain dots
 			if strings.Contains(nodeName, ".") {
 				t.Logf("Name contains dots: %s", nodeName)
 				return false
 			}
-			
+
 			return true
 		},
 		gen.UInt8(),
@@ -788,13 +788,13 @@ func TestNodeRegistrationCorrectness(t *testing.T) {
 			if port < 1 || port > 65535 {
 				port = 9001
 			}
-			
+
 			db := setupDiscoveryTestDB(t)
 			nodeRepo := newMockNodeRepository(db)
-			
+
 			ip := fmt.Sprintf("%d.%d.%d.%d", o1, o2, o3, o4)
 			nodeName := generateNodeName(ip)
-			
+
 			// Create node as the scanner would
 			node := &models.Node{
 				Name:     nodeName,
@@ -804,25 +804,25 @@ func TestNodeRegistrationCorrectness(t *testing.T) {
 				Password: "secret",
 				Status:   "discovered",
 			}
-			
+
 			err := nodeRepo.Create(node)
 			if err != nil {
 				t.Logf("Failed to create node: %v", err)
 				return false
 			}
-			
+
 			// Verify status
 			retrieved, err := nodeRepo.GetByName(nodeName)
 			if err != nil {
 				t.Logf("Failed to get node: %v", err)
 				return false
 			}
-			
+
 			if retrieved.Status != "discovered" {
 				t.Logf("Node status is not 'discovered': %s", retrieved.Status)
 				return false
 			}
-			
+
 			return true
 		},
 		gen.UInt8(),
@@ -832,20 +832,19 @@ func TestNodeRegistrationCorrectness(t *testing.T) {
 		gen.IntRange(1, 65535),
 	))
 
-
 	// Property 5c: No duplicate nodes created for same host:port
 	properties.Property("no duplicate nodes for same host:port", prop.ForAll(
 		func(o1, o2, o3, o4 uint8, port int) bool {
 			if port < 1 || port > 65535 {
 				port = 9001
 			}
-			
+
 			db := setupDiscoveryTestDB(t)
 			nodeRepo := newMockNodeRepository(db)
-			
+
 			ip := fmt.Sprintf("%d.%d.%d.%d", o1, o2, o3, o4)
 			nodeName := generateNodeName(ip)
-			
+
 			// Create first node
 			node1 := &models.Node{
 				Name:     nodeName,
@@ -855,37 +854,37 @@ func TestNodeRegistrationCorrectness(t *testing.T) {
 				Password: "secret",
 				Status:   "discovered",
 			}
-			
+
 			err := nodeRepo.Create(node1)
 			if err != nil {
 				t.Logf("Failed to create first node: %v", err)
 				return false
 			}
-			
+
 			// Check if exists before creating second
 			exists, err := nodeRepo.ExistsByHostPort(ip, port)
 			if err != nil {
 				t.Logf("Failed to check existence: %v", err)
 				return false
 			}
-			
+
 			if !exists {
 				t.Logf("ExistsByHostPort returned false for existing node")
 				return false
 			}
-			
+
 			// Verify only one node exists
 			nodes, count, err := nodeRepo.List(0, 100)
 			if err != nil {
 				t.Logf("Failed to list nodes: %v", err)
 				return false
 			}
-			
+
 			if count != 1 || len(nodes) != 1 {
 				t.Logf("Expected 1 node, got %d", count)
 				return false
 			}
-			
+
 			return true
 		},
 		gen.UInt8(),
@@ -901,13 +900,13 @@ func TestNodeRegistrationCorrectness(t *testing.T) {
 			if port < 1 || port > 65535 {
 				port = 9001
 			}
-			
+
 			db := setupDiscoveryTestDB(t)
 			nodeRepo := newMockNodeRepository(db)
-			
+
 			ip := fmt.Sprintf("%d.%d.%d.%d", o1, o2, o3, o4)
 			nodeName := generateNodeName(ip)
-			
+
 			node := &models.Node{
 				Name:     nodeName,
 				Host:     ip,
@@ -916,29 +915,29 @@ func TestNodeRegistrationCorrectness(t *testing.T) {
 				Password: "secret",
 				Status:   "discovered",
 			}
-			
+
 			err := nodeRepo.Create(node)
 			if err != nil {
 				t.Logf("Failed to create node: %v", err)
 				return false
 			}
-			
+
 			retrieved, err := nodeRepo.GetByName(nodeName)
 			if err != nil {
 				t.Logf("Failed to get node: %v", err)
 				return false
 			}
-			
+
 			if retrieved.Host != ip {
 				t.Logf("Host mismatch: expected %s, got %s", ip, retrieved.Host)
 				return false
 			}
-			
+
 			if retrieved.Port != port {
 				t.Logf("Port mismatch: expected %d, got %d", port, retrieved.Port)
 				return false
 			}
-			
+
 			return true
 		},
 		gen.UInt8(),
@@ -950,7 +949,6 @@ func TestNodeRegistrationCorrectness(t *testing.T) {
 
 	properties.TestingRun(t, gopter.ConsoleReporter(false))
 }
-
 
 // ============================================================================
 // Feature: node-discovery, Property 6: Result-Task Relationship Integrity
@@ -971,12 +969,12 @@ func TestResultTaskRelationshipIntegrity(t *testing.T) {
 			if prefix < 28 {
 				prefix = 28
 			}
-			
+
 			db := setupDiscoveryTestDB(t)
 			repo := newMockDiscoveryRepository(db)
-			
+
 			cidr := fmt.Sprintf("%d.%d.%d.%d/%d", o1, o2, o3, o4, prefix)
-			
+
 			// Create task first
 			task := &models.DiscoveryTask{
 				CIDR:      cidr,
@@ -986,24 +984,24 @@ func TestResultTaskRelationshipIntegrity(t *testing.T) {
 				TotalIPs:  1 << (32 - prefix),
 				CreatedBy: "test",
 			}
-			
+
 			err := repo.CreateTask(task)
 			if err != nil {
 				t.Logf("Failed to create task: %v", err)
 				return false
 			}
-			
+
 			// Parse CIDR to get valid IP
 			cidrRange, err := utils.ParseCIDR(cidr)
 			if err != nil {
 				return true // Invalid CIDR, skip
 			}
-			
+
 			ips := cidrRange.IPs()
 			if len(ips) == 0 {
 				return true
 			}
-			
+
 			// Create result with valid TaskID
 			result := &models.DiscoveryResult{
 				TaskID:   task.ID,
@@ -1012,26 +1010,26 @@ func TestResultTaskRelationshipIntegrity(t *testing.T) {
 				Status:   models.ResultStatusSuccess,
 				Duration: 100,
 			}
-			
+
 			err = repo.CreateResult(result)
 			if err != nil {
 				t.Logf("Failed to create result: %v", err)
 				return false
 			}
-			
+
 			// Verify task exists
 			retrievedTask, err := repo.GetTask(task.ID)
 			if err != nil {
 				t.Logf("Task not found for result: %v", err)
 				return false
 			}
-			
+
 			if retrievedTask.ID != result.TaskID {
 				t.Logf("TaskID mismatch: result has %d, task has %d",
 					result.TaskID, retrievedTask.ID)
 				return false
 			}
-			
+
 			return true
 		},
 		gen.UInt8(),
@@ -1041,29 +1039,28 @@ func TestResultTaskRelationshipIntegrity(t *testing.T) {
 		gen.IntRange(28, 32),
 	))
 
-
 	// Property 6b: Result IP is within task's CIDR range
 	properties.Property("result IP is within task CIDR range", prop.ForAll(
 		func(o1, o2, o3, o4 uint8, prefix int) bool {
 			if prefix < 28 {
 				prefix = 28
 			}
-			
+
 			db := setupDiscoveryTestDB(t)
 			repo := newMockDiscoveryRepository(db)
-			
+
 			cidr := fmt.Sprintf("%d.%d.%d.%d/%d", o1, o2, o3, o4, prefix)
-			
+
 			cidrRange, err := utils.ParseCIDR(cidr)
 			if err != nil {
 				return true // Invalid CIDR, skip
 			}
-			
+
 			ips := cidrRange.IPs()
 			if len(ips) == 0 {
 				return true
 			}
-			
+
 			// Create task
 			task := &models.DiscoveryTask{
 				CIDR:      cidr,
@@ -1073,13 +1070,13 @@ func TestResultTaskRelationshipIntegrity(t *testing.T) {
 				TotalIPs:  cidrRange.Count(),
 				CreatedBy: "test",
 			}
-			
+
 			err = repo.CreateTask(task)
 			if err != nil {
 				t.Logf("Failed to create task: %v", err)
 				return false
 			}
-			
+
 			// Create results for all IPs in range
 			for _, ip := range ips {
 				result := &models.DiscoveryResult{
@@ -1089,34 +1086,34 @@ func TestResultTaskRelationshipIntegrity(t *testing.T) {
 					Status:   models.ResultStatusTimeout,
 					Duration: 3000,
 				}
-				
+
 				err = repo.CreateResult(result)
 				if err != nil {
 					t.Logf("Failed to create result: %v", err)
 					return false
 				}
-				
+
 				// Verify IP is in CIDR range
 				if !cidrRange.Contains(ip) {
 					t.Logf("Result IP %s not in CIDR %s", ip, cidr)
 					return false
 				}
 			}
-			
+
 			// Verify all results
 			results, err := repo.GetResultsByTaskID(task.ID)
 			if err != nil {
 				t.Logf("Failed to get results: %v", err)
 				return false
 			}
-			
+
 			for _, result := range results {
 				if !cidrRange.Contains(result.IP) {
 					t.Logf("Retrieved result IP %s not in CIDR %s", result.IP, cidr)
 					return false
 				}
 			}
-			
+
 			return true
 		},
 		gen.UInt8(),
@@ -1131,16 +1128,16 @@ func TestResultTaskRelationshipIntegrity(t *testing.T) {
 		func(o1, o2, o3, o4 uint8) bool {
 			db := setupDiscoveryTestDB(t)
 			repo := newMockDiscoveryRepository(db)
-			
+
 			cidr := fmt.Sprintf("%d.%d.%d.%d/30", o1, o2, o3, o4) // 4 IPs
-			
+
 			cidrRange, err := utils.ParseCIDR(cidr)
 			if err != nil {
 				return true
 			}
-			
+
 			ips := cidrRange.IPs()
-			
+
 			task := &models.DiscoveryTask{
 				CIDR:       cidr,
 				Port:       9001,
@@ -1150,13 +1147,13 @@ func TestResultTaskRelationshipIntegrity(t *testing.T) {
 				ScannedIPs: len(ips),
 				CreatedBy:  "test",
 			}
-			
+
 			err = repo.CreateTask(task)
 			if err != nil {
 				t.Logf("Failed to create task: %v", err)
 				return false
 			}
-			
+
 			// Create result for each IP
 			for _, ip := range ips {
 				result := &models.DiscoveryResult{
@@ -1168,18 +1165,18 @@ func TestResultTaskRelationshipIntegrity(t *testing.T) {
 				}
 				repo.CreateResult(result)
 			}
-			
+
 			results, err := repo.GetResultsByTaskID(task.ID)
 			if err != nil {
 				t.Logf("Failed to get results: %v", err)
 				return false
 			}
-			
+
 			if len(results) != task.ScannedIPs {
 				t.Logf("Results count %d != ScannedIPs %d", len(results), task.ScannedIPs)
 				return false
 			}
-			
+
 			return true
 		},
 		gen.UInt8(),

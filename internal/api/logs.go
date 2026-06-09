@@ -28,7 +28,7 @@ func NewLogsAPI(logger *services.ActivityLogService, db *gorm.DB) *LogsAPI {
 
 func (a *LogsAPI) GetLogs(c *gin.Context) {
 	// Check authentication
-	userID, exists := c.Get("user_id")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"status":  "error",
@@ -39,7 +39,7 @@ func (a *LogsAPI) GetLogs(c *gin.Context) {
 
 	// Get user from database
 	var user models.User
-	if err := a.db.Where("id = ?", userID).First(&user).Error; err != nil {
+	if err := a.db.Preload("Roles.Permissions").Where("id = ?", userID).First(&user).Error; err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"status":  "error",
 			"message": "User not found",
@@ -47,11 +47,10 @@ func (a *LogsAPI) GetLogs(c *gin.Context) {
 		return
 	}
 
-	// Check admin permission
-	if !user.IsAdmin {
+	if !user.IsSuperAdmin() && !user.HasPermission(models.PermissionLogRead) {
 		c.JSON(http.StatusForbidden, gin.H{
 			"status":  "error",
-			"message": "Admin privileges required",
+			"message": "Log read permission required",
 		})
 		return
 	}

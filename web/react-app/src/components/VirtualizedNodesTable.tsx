@@ -41,6 +41,7 @@ export const VirtualizedNodesTable: React.FC<VirtualizedNodesTableProps> = ({
   searchQuery = '',
   height = 400,
 }) => {
+  const VirtualList = ReactWindow.List as any;
   const [sortedInfo, setSortedInfo] = useState<any>({});
 
   // Transform nodes for table display
@@ -340,17 +341,17 @@ export const VirtualizedNodesTable: React.FC<VirtualizedNodesTableProps> = ({
     );
   }
 
-  return (
-    <div style={{ border: '1px solid #f0f0f0', borderRadius: 6 }}>
+    return (
+      <div style={{ border: '1px solid #f0f0f0', borderRadius: 6 }}>
       <Header />
-      <ReactWindow.List
+      <VirtualList
         height={height - HEADER_HEIGHT}
         itemCount={tableData.length}
         itemSize={ROW_HEIGHT}
         width="100%"
       >
         {Row}
-      </ReactWindow.List>
+      </VirtualList>
       
       {/* Footer with pagination info */}
       <div style={{ 

@@ -5,12 +5,23 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"superview/internal/models"
 	"gorm.io/gorm"
+	"superview/internal/models"
 )
 
 type ActivityLogService struct {
 	db *gorm.DB
+}
+
+func contextUserID(c *gin.Context) string {
+	for _, key := range []string{"user_id", "userID"} {
+		if uid, exists := c.Get(key); exists {
+			if uidStr, ok := uid.(string); ok && uidStr != "" {
+				return uidStr
+			}
+		}
+	}
+	return ""
 }
 
 func NewActivityLogService(db *gorm.DB) *ActivityLogService {
@@ -37,13 +48,11 @@ func (s *ActivityLogService) LogWithContext(c *gin.Context, level, action, resou
 
 	// fallback: 如果 user 对象不存在，尝试用 user_id 查库
 	if username == "" {
-		if uid, exists := c.Get("user_id"); exists {
-			if uidStr, ok := uid.(string); ok && uidStr != "" {
-				userID = uidStr
-				var user models.User
-				if s.db.Where("id = ?", uidStr).First(&user).Error == nil {
-					username = user.Username
-				}
+		if uidStr := contextUserID(c); uidStr != "" {
+			userID = uidStr
+			var user models.User
+			if s.db.Where("id = ?", uidStr).First(&user).Error == nil {
+				username = user.Username
 			}
 		}
 	}
@@ -79,13 +88,11 @@ func (s *ActivityLogService) LogError(c *gin.Context, action, resource, target s
 
 	// fallback: 如果 user 对象不存在，尝试用 user_id 查库
 	if username == "" {
-		if uid, exists := c.Get("user_id"); exists {
-			if uidStr, ok := uid.(string); ok && uidStr != "" {
-				userID = uidStr
-				var user models.User
-				if s.db.Where("id = ?", uidStr).First(&user).Error == nil {
-					username = user.Username
-				}
+		if uidStr := contextUserID(c); uidStr != "" {
+			userID = uidStr
+			var user models.User
+			if s.db.Where("id = ?", uidStr).First(&user).Error == nil {
+				username = user.Username
 			}
 		}
 	}
@@ -337,9 +344,9 @@ func (s *ActivityLogService) LogUserAction(c *gin.Context, action, targetUsernam
 // ExportLogs 导出日志为 CSV 格式
 func (s *ActivityLogService) ExportLogs(filters map[string]interface{}) ([]byte, error) {
 	var logs []*models.ActivityLog
-	
+
 	query := s.db.Model(&models.ActivityLog{})
-	
+
 	// 应用过滤器
 	for key, value := range filters {
 		if value != nil && value != "" {
@@ -367,21 +374,21 @@ func (s *ActivityLogService) ExportLogs(filters map[string]interface{}) ([]byte,
 			}
 		}
 	}
-	
+
 	// 查询所有符合条件的日志
 	if err := query.Order("created_at DESC").Find(&logs).Error; err != nil {
 		return nil, err
 	}
-	
+
 	// 生成 CSV 内容
 	csv := "ID,Created At,Level,Username,Action,Resource,Target,Message,IP Address,Status,Duration\n"
-	
+
 	for _, log := range logs {
 		username := log.Username
 		if username == "" {
 			username = "system"
 		}
-		
+
 		csv += fmt.Sprintf("%d,%s,%s,%s,%s,%s,%s,\"%s\",%s,%s,%d\n",
 			log.ID,
 			log.CreatedAt.Format("2006-01-02 15:04:05"),
@@ -396,7 +403,7 @@ func (s *ActivityLogService) ExportLogs(filters map[string]interface{}) ([]byte,
 			log.Duration,
 		)
 	}
-	
+
 	return []byte(csv), nil
 }
 
@@ -415,6 +422,6 @@ func (s *ActivityLogService) LogSystemEvent(level, action, resource, target, mes
 		CreatedAt: time.Now(),
 		Status:    models.StatusSuccess,
 	}
-	
+
 	return s.db.Create(log).Error
 }

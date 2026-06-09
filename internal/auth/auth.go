@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 	"superview/internal/models"
 	"superview/internal/services"
-	"gorm.io/gorm"
 )
 
 type AuthService struct {
@@ -290,12 +290,24 @@ func (s *AuthService) AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// 将用户ID存储在上下文中
+		// Store both keys during the migration window to avoid breaking
+		// handlers that still read the legacy context name.
 		c.Set("user_id", claims.UserID)
+		c.Set("userID", claims.UserID)
 
-		// 查询完整用户对象，供 activity log 等使用
+		// Query the fully-hydrated user object for downstream permission checks.
+		// Fall back to a plain user load when association tables are unavailable
+		// in narrower test fixtures.
 		var user models.User
-		if err := s.db.Where("id = ?", claims.UserID).First(&user).Error; err == nil {
+		err = s.db.
+			Preload("Roles.Permissions").
+			Preload("NodeAccess").
+			Where("id = ?", claims.UserID).
+			First(&user).Error
+		if err != nil {
+			err = s.db.Where("id = ?", claims.UserID).First(&user).Error
+		}
+		if err == nil {
 			c.Set("user", &user)
 		}
 

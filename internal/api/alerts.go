@@ -43,7 +43,7 @@ func (h *AlertHandler) CreateAlertRule(c *gin.Context) {
 		Threshold   float64 `json:"threshold" binding:"required"`
 		Duration    int     `json:"duration" binding:"required"`
 		Severity    string  `json:"severity" binding:"required"`
-		Enabled     bool    `json:"enabled"`
+		Enabled     *bool   `json:"enabled"`
 		NodeID      *uint   `json:"node_id,omitempty"`
 		ProcessName *string `json:"process_name,omitempty"`
 		Tags        string  `json:"tags"`
@@ -77,12 +77,11 @@ func (h *AlertHandler) CreateAlertRule(c *gin.Context) {
 	}
 
 	// 获取当前用户ID
-	userID, exists := c.Get("user_id")
+	userIDStr, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
 		return
 	}
-	userIDStr, _ := userID.(string)
 
 	rule := &models.AlertRule{
 		Name:        req.Name,
@@ -92,7 +91,7 @@ func (h *AlertHandler) CreateAlertRule(c *gin.Context) {
 		Threshold:   req.Threshold,
 		Duration:    req.Duration,
 		Severity:    req.Severity,
-		Enabled:     req.Enabled,
+		Enabled:     boolValueOrDefault(req.Enabled, true),
 		NodeID:      req.NodeID,
 		ProcessName: req.ProcessName,
 		Tags:        req.Tags,
@@ -420,7 +419,7 @@ func (h *AlertHandler) CreateNotificationChannel(c *gin.Context) {
 		Name        string `json:"name" binding:"required"`
 		Type        string `json:"type" binding:"required"`
 		Config      string `json:"config" binding:"required"`
-		Enabled     bool   `json:"enabled"`
+		Enabled     *bool  `json:"enabled"`
 		Description string `json:"description"`
 	}
 
@@ -452,7 +451,7 @@ func (h *AlertHandler) CreateNotificationChannel(c *gin.Context) {
 		Name:        req.Name,
 		Type:        req.Type,
 		Config:      req.Config,
-		Enabled:     req.Enabled,
+		Enabled:     boolValueOrDefault(req.Enabled, true),
 		Description: req.Description,
 		CreatedBy:   userIDStr,
 	}

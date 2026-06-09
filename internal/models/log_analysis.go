@@ -45,13 +45,13 @@ type LogAnalysisRule struct {
 	Tags        *string        `json:"tags" gorm:"type:json"`
 	MatchCount  int64          `json:"match_count" gorm:"default:0"`
 	LastMatch   *time.Time     `json:"last_match"`
-	CreatedBy   uint           `json:"created_by"`
+	CreatedBy   string         `json:"created_by" gorm:"size:50;index"`
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
 	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index:idx_log_analysis_rule_deleted_at"`
 
 	// 关联
-	Creator *User `json:"creator,omitempty" gorm:"foreignKey:CreatedBy"`
+	Creator *User `json:"creator,omitempty" gorm:"foreignKey:CreatedBy;references:ID"`
 }
 
 // LogStatistics 日志统计信息
@@ -93,10 +93,10 @@ type LogAlert struct {
 	FirstSeen      time.Time      `json:"first_seen"`
 	LastSeen       time.Time      `json:"last_seen"`
 	Acknowledged   bool           `json:"acknowledged" gorm:"default:false"`
-	AcknowledgedBy *uint          `json:"acknowledged_by"`
+	AcknowledgedBy *string        `json:"acknowledged_by" gorm:"size:50;index"`
 	AcknowledgedAt *time.Time     `json:"acknowledged_at"`
 	Resolved       bool           `json:"resolved" gorm:"default:false"`
-	ResolvedBy     *uint          `json:"resolved_by"`
+	ResolvedBy     *string        `json:"resolved_by" gorm:"size:50;index"`
 	ResolvedAt     *time.Time     `json:"resolved_at"`
 	CreatedAt      time.Time      `json:"created_at"`
 	UpdatedAt      time.Time      `json:"updated_at"`
@@ -105,8 +105,8 @@ type LogAlert struct {
 	// 关联
 	Rule         *LogAnalysisRule `json:"rule,omitempty" gorm:"foreignKey:RuleID"`
 	LogEntry     *LogEntry        `json:"log_entry,omitempty" gorm:"foreignKey:LogEntryID"`
-	Acknowledger *User            `json:"acknowledger,omitempty" gorm:"foreignKey:AcknowledgedBy"`
-	Resolver     *User            `json:"resolver,omitempty" gorm:"foreignKey:ResolvedBy"`
+	Acknowledger *User            `json:"acknowledger,omitempty" gorm:"foreignKey:AcknowledgedBy;references:ID"`
+	Resolver     *User            `json:"resolver,omitempty" gorm:"foreignKey:ResolvedBy;references:ID"`
 }
 
 // LogFilter 日志过滤器
@@ -119,13 +119,13 @@ type LogFilter struct {
 	IsDefault   bool           `json:"is_default" gorm:"default:false"`
 	UsageCount  int64          `json:"usage_count" gorm:"default:0"`
 	LastUsed    *time.Time     `json:"last_used"`
-	CreatedBy   uint           `json:"created_by"`
+	CreatedBy   string         `json:"created_by" gorm:"size:50;index"`
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
 	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index:idx_log_filter_deleted_at"`
 
 	// 关联
-	Creator *User `json:"creator,omitempty" gorm:"foreignKey:CreatedBy"`
+	Creator *User `json:"creator,omitempty" gorm:"foreignKey:CreatedBy;references:ID"`
 }
 
 // LogExport 日志导出任务
@@ -146,13 +146,13 @@ type LogExport struct {
 	Error            *string        `json:"error" gorm:"type:text"`
 	StartedAt        *time.Time     `json:"started_at"`
 	CompletedAt      *time.Time     `json:"completed_at"`
-	CreatedBy        uint           `json:"created_by"`
+	CreatedBy        string         `json:"created_by" gorm:"size:50;index"`
 	CreatedAt        time.Time      `json:"created_at"`
 	UpdatedAt        time.Time      `json:"updated_at"`
 	DeletedAt        gorm.DeletedAt `json:"-" gorm:"index:idx_log_export_deleted_at"`
 
 	// 关联
-	Creator *User `json:"creator,omitempty" gorm:"foreignKey:CreatedBy"`
+	Creator *User `json:"creator,omitempty" gorm:"foreignKey:CreatedBy;references:ID"`
 }
 
 // LogRetentionPolicy 日志保留策略
@@ -170,13 +170,13 @@ type LogRetentionPolicy struct {
 	ProcessedCount   int64          `json:"processed_count" gorm:"default:0"`
 	DeletedCount     int64          `json:"deleted_count" gorm:"default:0"`
 	ArchivedCount    int64          `json:"archived_count" gorm:"default:0"`
-	CreatedBy        uint           `json:"created_by"`
+	CreatedBy        string         `json:"created_by" gorm:"size:50;index"`
 	CreatedAt        time.Time      `json:"created_at"`
 	UpdatedAt        time.Time      `json:"updated_at"`
 	DeletedAt        gorm.DeletedAt `json:"-" gorm:"index:idx_log_retention_policy_deleted_at"`
 
 	// 关联
-	Creator *User `json:"creator,omitempty" gorm:"foreignKey:CreatedBy"`
+	Creator *User `json:"creator,omitempty" gorm:"foreignKey:CreatedBy;references:ID"`
 }
 
 // 常量定义

@@ -5,10 +5,10 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 	"superview/internal/models"
 	"superview/internal/services"
 	"superview/internal/validation"
-	"gorm.io/gorm"
 )
 
 type UserAPI struct {
@@ -24,23 +24,25 @@ func NewUserAPI(db *gorm.DB, activityLogService ...*services.ActivityLogService)
 	return api
 }
 
-// 检查当前用户是否为管理员
-func (u *UserAPI) checkAdmin(c *gin.Context) bool {
-	var currentUser models.User
-	userID := c.GetString("user_id")
-	if err := u.db.Where("id = ?", userID).First(&currentUser).Error; err != nil {
-		return false
+func (u *UserAPI) requireUserPermission(c *gin.Context, permission string) (*models.User, bool) {
+	currentUser, ok := getCurrentUser(c)
+	if !ok {
+		return nil, false
 	}
-	return currentUser.IsAdmin
+
+	if !currentUser.IsSuperAdmin() && !currentUser.HasPermission(permission) {
+		c.JSON(http.StatusForbidden, gin.H{
+			"status":  "error",
+			"message": "权限不足",
+		})
+		return nil, false
+	}
+
+	return currentUser, true
 }
 
 func (u *UserAPI) ListUsers(c *gin.Context) {
-	// 只有管理员可以列出所有用户
-	if !u.checkAdmin(c) {
-		c.JSON(http.StatusForbidden, gin.H{
-			"status":  "error",
-			"message": "需要管理员权限",
-		})
+	if _, ok := u.requireUserPermission(c, models.PermissionUserRead); !ok {
 		return
 	}
 
@@ -69,12 +71,7 @@ func (u *UserAPI) ListUsers(c *gin.Context) {
 }
 
 func (u *UserAPI) CreateUser(c *gin.Context) {
-	// 只有管理员可以创建用户
-	if !u.checkAdmin(c) {
-		c.JSON(http.StatusForbidden, gin.H{
-			"status":  "error",
-			"message": "需要管理员权限",
-		})
+	if _, ok := u.requireUserPermission(c, models.PermissionUserWrite); !ok {
 		return
 	}
 
@@ -99,11 +96,11 @@ func (u *UserAPI) CreateUser(c *gin.Context) {
 	validator.ValidateLength("username", req.Username, 3, 50)
 	validator.ValidateAlphanumeric("username", req.Username)
 	validator.ValidateNoSQLInjection("username", req.Username)
-	
+
 	validator.ValidateRequired("password", req.Password)
 	validator.ValidateLength("password", req.Password, 6, 100)
 	validator.ValidateNoSQLInjection("password", req.Password)
-	
+
 	if validator.HasErrors() {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"status":  "error",
@@ -112,7 +109,7 @@ func (u *UserAPI) CreateUser(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	// 检查用户名是否已存在
 	var existingUser models.User
 	if err := u.db.Where("username = ?", req.Username).First(&existingUser).Error; err == nil {
@@ -170,14 +167,8 @@ func (u *UserAPI) ChangePassword(c *gin.Context) {
 		return
 	}
 
-	// 获取当前用户
-	var currentUser models.User
-	currentUserID := c.GetString("user_id")
-	if err := u.db.Where("id = ?", currentUserID).First(&currentUser).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"status":  "error",
-			"message": "当前用户不存在",
-		})
+	currentUser, ok := getCurrentUser(c)
+	if !ok {
 		return
 	}
 
@@ -192,7 +183,7 @@ func (u *UserAPI) ChangePassword(c *gin.Context) {
 	}
 
 	// 只有管理员或用户本人可以修改密码
-	if !currentUser.IsAdmin && currentUser.ID != targetUser.ID {
+	if !currentUser.IsSuperAdmin() && !currentUser.HasPermission(models.PermissionUserWrite) && currentUser.ID != targetUser.ID {
 		c.JSON(http.StatusForbidden, gin.H{
 			"status":  "error",
 			"message": "无权修改其他用户的密码",
@@ -239,12 +230,7 @@ func (u *UserAPI) ChangePassword(c *gin.Context) {
 }
 
 func (u *UserAPI) DeleteUser(c *gin.Context) {
-	// 只有管理员可以删除用户
-	if !u.checkAdmin(c) {
-		c.JSON(http.StatusForbidden, gin.H{
-			"status":  "error",
-			"message": "需要管理员权限",
-		})
+	if _, ok := u.requireUserPermission(c, models.PermissionUserDelete); !ok {
 		return
 	}
 
@@ -261,7 +247,14 @@ func (u *UserAPI) DeleteUser(c *gin.Context) {
 	}
 
 	// 不允许删除自己
-	currentUserID := c.GetString("user_id")
+	currentUserID, ok := getUserIDString(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"status":  "error",
+			"message": "用户未认证",
+		})
+		return
+	}
 	if user.ID == currentUserID {
 		c.JSON(http.StatusForbidden, gin.H{
 			"status":  "error",
@@ -286,7 +279,15 @@ func (u *UserAPI) DeleteUser(c *gin.Context) {
 
 // GetProfile 获取用户个人资料
 func (u *UserAPI) GetProfile(c *gin.Context) {
-	currentUserID := c.GetString("user_id")
+	currentUserID, ok := getUserIDString(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"status":  "error",
+			"message": "用户未认证",
+		})
+		return
+	}
+
 	var user models.User
 	if err := u.db.Where("id = ?", currentUserID).First(&user).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
@@ -327,7 +328,15 @@ func (u *UserAPI) UpdateProfile(c *gin.Context) {
 		return
 	}
 
-	currentUserID := c.GetString("user_id")
+	currentUserID, ok := getUserIDString(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"status":  "error",
+			"message": "用户未认证",
+		})
+		return
+	}
+
 	var user models.User
 	if err := u.db.Where("id = ?", currentUserID).First(&user).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{

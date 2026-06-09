@@ -12,18 +12,36 @@ import (
 	"superview/internal/validation"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type ProcessesAPI struct {
 	service            *supervisor.SupervisorService
+	db                 *gorm.DB
 	activityLogService *services.ActivityLogService
 }
 
-func NewProcessesAPI(service *supervisor.SupervisorService, activityLogService *services.ActivityLogService) *ProcessesAPI {
+func NewProcessesAPI(service *supervisor.SupervisorService, db *gorm.DB, activityLogService *services.ActivityLogService) *ProcessesAPI {
 	return &ProcessesAPI{
 		service:            service,
+		db:                 db,
 		activityLogService: activityLogService,
 	}
+}
+
+func (api *ProcessesAPI) getAccessibleNodes(c *gin.Context, action string) ([]*supervisor.Node, bool) {
+	user, ok := getCurrentUser(c)
+	if !ok {
+		return nil, false
+	}
+
+	nodes, err := filterNodesByAction(api.db, api.service.GetAllNodes(), user, action)
+	if err != nil {
+		handleAppError(c, err)
+		return nil, false
+	}
+
+	return nodes, true
 }
 
 // AggregatedProcess 聚合的进程信息
@@ -50,7 +68,10 @@ type ProcessInstance struct {
 
 // GetAggregatedProcesses 获取聚合的进程列表
 func (api *ProcessesAPI) GetAggregatedProcesses(c *gin.Context) {
-	nodes := api.service.GetAllNodes()
+	nodes, ok := api.getAccessibleNodes(c, "read")
+	if !ok {
+		return
+	}
 	if nodes == nil {
 		c.JSON(http.StatusOK, gin.H{
 			"status":    "success",
@@ -121,11 +142,11 @@ func (api *ProcessesAPI) GetAggregatedProcesses(c *gin.Context) {
 
 // BatchOperationResult 批量操作结果
 type BatchOperationResult struct {
-	ProcessName    string                      `json:"process_name"`
-	TotalInstances int                         `json:"total_instances"`
-	SuccessCount   int                         `json:"success_count"`
-	FailureCount   int                         `json:"failure_count"`
-	Results        []InstanceOperationResult   `json:"results"`
+	ProcessName    string                    `json:"process_name"`
+	TotalInstances int                       `json:"total_instances"`
+	SuccessCount   int                       `json:"success_count"`
+	FailureCount   int                       `json:"failure_count"`
+	Results        []InstanceOperationResult `json:"results"`
 }
 
 // InstanceOperationResult 单个实例操作结果
@@ -154,7 +175,12 @@ func (api *ProcessesAPI) BatchStartProcess(c *gin.Context) {
 	}
 
 	// 执行批量操作
-	result := api.batchOperation(processName, "start")
+	nodes, ok := api.getAccessibleNodes(c, "execute")
+	if !ok {
+		return
+	}
+
+	result := api.batchOperation(nodes, processName, "start")
 
 	// 记录日志
 	if api.activityLogService != nil {
@@ -188,7 +214,12 @@ func (api *ProcessesAPI) BatchStopProcess(c *gin.Context) {
 	}
 
 	// 执行批量操作
-	result := api.batchOperation(processName, "stop")
+	nodes, ok := api.getAccessibleNodes(c, "execute")
+	if !ok {
+		return
+	}
+
+	result := api.batchOperation(nodes, processName, "stop")
 
 	// 记录日志
 	if api.activityLogService != nil {
@@ -222,7 +253,12 @@ func (api *ProcessesAPI) BatchRestartProcess(c *gin.Context) {
 	}
 
 	// 执行批量操作
-	result := api.batchOperation(processName, "restart")
+	nodes, ok := api.getAccessibleNodes(c, "execute")
+	if !ok {
+		return
+	}
+
+	result := api.batchOperation(nodes, processName, "restart")
 
 	// 记录日志
 	if api.activityLogService != nil {
@@ -238,9 +274,7 @@ func (api *ProcessesAPI) BatchRestartProcess(c *gin.Context) {
 }
 
 // batchOperation 执行批量操作
-func (api *ProcessesAPI) batchOperation(processName, operation string) BatchOperationResult {
-	nodes := api.service.GetAllNodes()
-	
+func (api *ProcessesAPI) batchOperation(nodes []*supervisor.Node, processName, operation string) BatchOperationResult {
 	result := BatchOperationResult{
 		ProcessName: processName,
 		Results:     make([]InstanceOperationResult, 0),

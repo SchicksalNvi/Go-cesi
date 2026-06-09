@@ -3,6 +3,7 @@ package api
 import (
 	"superview/internal/auth"
 	"superview/internal/middleware"
+	"superview/internal/models"
 	"superview/internal/repository"
 	"superview/internal/services"
 	"superview/internal/supervisor"
@@ -23,11 +24,12 @@ func SetupRoutes(r *gin.Engine, db *gorm.DB, service *supervisor.SupervisorServi
 
 	activityLogService := services.NewActivityLogService(db)
 	authService := auth.NewAuthService(db, activityLogService)
+	permissionChecker := auth.NewPermissionChecker(db)
 	nodesAPI := NewNodesAPI(service, db, activityLogService)
 	userAPI := NewUserAPI(db, activityLogService)
-	environmentsAPI := NewEnvironmentsAPI(service)
-	groupsAPI := NewGroupsAPI(service, activityLogService)
-	processesAPI := NewProcessesAPI(service, activityLogService)
+	environmentsAPI := NewEnvironmentsAPI(service, db)
+	groupsAPI := NewGroupsAPI(service, db, activityLogService)
+	processesAPI := NewProcessesAPI(service, db, activityLogService)
 	activityLogsAPI := NewActivityLogsAPI(activityLogService)
 	healthAPI := NewHealthAPI(db, service)
 	logManagementAPI := NewLogManagementAPI()
@@ -58,7 +60,7 @@ func SetupRoutes(r *gin.Engine, db *gorm.DB, service *supervisor.SupervisorServi
 		// Health check endpoints
 		healthGroup := apiGroup.Group("/health")
 		{
-			healthGroup.GET("", healthAPI.GetHealth)
+			healthGroup.GET("", permissionChecker.RequirePermission(models.PermissionSystemManage), healthAPI.GetHealth)
 			healthGroup.GET("/live", healthAPI.GetHealthLive)
 			healthGroup.GET("/ready", healthAPI.GetHealthReady)
 		}
@@ -66,32 +68,34 @@ func SetupRoutes(r *gin.Engine, db *gorm.DB, service *supervisor.SupervisorServi
 		// Nodes routes
 		nodesGroup := apiGroup.Group("/nodes")
 		{
-			nodesGroup.GET("", nodesAPI.GetNodes)
-			nodesGroup.GET("/:node_name", nodesAPI.GetNode)
-			nodesGroup.PUT("/:node_name", nodesAPI.UpdateNode)
-			nodesGroup.GET("/:node_name/processes", nodesAPI.GetNodeProcesses)
-			nodesGroup.POST("/:node_name/processes/:process_name/start", nodesAPI.StartProcess)
-			nodesGroup.POST("/:node_name/processes/:process_name/stop", nodesAPI.StopProcess)
-			nodesGroup.POST("/:node_name/processes/:process_name/restart", nodesAPI.RestartProcess)
-			nodesGroup.GET("/:node_name/processes/:process_name/logs", nodesAPI.GetProcessLogs)
-			nodesGroup.GET("/:node_name/processes/:process_name/logs/stream", nodesAPI.GetProcessLogStream)
+			nodesGroup.GET("", permissionChecker.RequirePermission(models.PermissionNodeRead), nodesAPI.GetNodes)
+			nodesGroup.GET("/:node_name", permissionChecker.RequirePermission(models.PermissionNodeRead), nodesAPI.GetNode)
+			nodesGroup.PUT("/:node_name", permissionChecker.RequirePermission(models.PermissionNodeWrite), nodesAPI.UpdateNode)
+			nodesGroup.GET("/:node_name/processes", permissionChecker.RequirePermission(models.PermissionProcessRead), nodesAPI.GetNodeProcesses)
+			nodesGroup.POST("/:node_name/processes/:process_name/start", permissionChecker.RequirePermission(models.PermissionProcessExecute), nodesAPI.StartProcess)
+			nodesGroup.POST("/:node_name/processes/:process_name/stop", permissionChecker.RequirePermission(models.PermissionProcessExecute), nodesAPI.StopProcess)
+			nodesGroup.POST("/:node_name/processes/:process_name/restart", permissionChecker.RequirePermission(models.PermissionProcessExecute), nodesAPI.RestartProcess)
+			nodesGroup.GET("/:node_name/processes/:process_name/logs", permissionChecker.RequirePermission(models.PermissionLogRead), nodesAPI.GetProcessLogs)
+			nodesGroup.GET("/:node_name/processes/:process_name/logs/stream", permissionChecker.RequirePermission(models.PermissionLogRead), nodesAPI.GetProcessLogStream)
 			// Batch operations
-			nodesGroup.POST("/:node_name/processes/start-all", nodesAPI.StartAllProcesses)
-			nodesGroup.POST("/:node_name/processes/stop-all", nodesAPI.StopAllProcesses)
-			nodesGroup.POST("/:node_name/processes/restart-all", nodesAPI.RestartAllProcesses)
+			nodesGroup.POST("/:node_name/processes/start-all", permissionChecker.RequirePermission(models.PermissionProcessExecute), nodesAPI.StartAllProcesses)
+			nodesGroup.POST("/:node_name/processes/stop-all", permissionChecker.RequirePermission(models.PermissionProcessExecute), nodesAPI.StopAllProcesses)
+			nodesGroup.POST("/:node_name/processes/restart-all", permissionChecker.RequirePermission(models.PermissionProcessExecute), nodesAPI.RestartAllProcesses)
 		}
 
 		// User management API
 		userHandler := NewUserHandler(db, activityLogService)
 		userGroup := apiGroup.Group("/users")
 		{
-			userGroup.GET("", userHandler.GetUsers)
-			userGroup.POST("", userHandler.CreateUser)
-			userGroup.GET("/:id", userHandler.GetUserByID)
-			userGroup.PUT("/:id", userHandler.UpdateUser)
-			userGroup.DELETE("/:id", userHandler.DeleteUser)
-			userGroup.PUT("/:id/password", userHandler.ResetPassword)
-			userGroup.PATCH("/:id/toggle", userHandler.ToggleUserStatus)
+			userGroup.GET("", permissionChecker.RequirePermission(models.PermissionUserRead), userHandler.GetUsers)
+			userGroup.POST("", permissionChecker.RequirePermission(models.PermissionUserWrite), userHandler.CreateUser)
+			userGroup.GET("/:id", permissionChecker.RequirePermission(models.PermissionUserRead), userHandler.GetUserByID)
+			userGroup.PUT("/:id", permissionChecker.RequirePermission(models.PermissionUserWrite), userHandler.UpdateUser)
+			userGroup.DELETE("/:id", permissionChecker.RequirePermission(models.PermissionUserDelete), userHandler.DeleteUser)
+			userGroup.PUT("/:id/password", permissionChecker.RequirePermission(models.PermissionUserWrite), userHandler.ResetPassword)
+			userGroup.PATCH("/:id/toggle", permissionChecker.RequirePermission(models.PermissionUserWrite), userHandler.ToggleUserStatus)
+			userGroup.GET("/:id/node-access", permissionChecker.RequirePermission(models.PermissionUserRead), userHandler.GetUserNodeAccess)
+			userGroup.PUT("/:id/node-access", permissionChecker.RequirePermission(models.PermissionUserWrite), userHandler.UpdateUserNodeAccess)
 		}
 
 		// Profile management API
@@ -104,67 +108,67 @@ func SetupRoutes(r *gin.Engine, db *gorm.DB, service *supervisor.SupervisorServi
 		// Environments API
 		environmentsGroup := apiGroup.Group("/environments")
 		{
-			environmentsGroup.GET("", environmentsAPI.GetEnvironments)
-			environmentsGroup.GET("/:environment_name", environmentsAPI.GetEnvironmentDetails)
+			environmentsGroup.GET("", permissionChecker.RequirePermission(models.PermissionNodeRead), environmentsAPI.GetEnvironments)
+			environmentsGroup.GET("/:environment_name", permissionChecker.RequirePermission(models.PermissionNodeRead), environmentsAPI.GetEnvironmentDetails)
 		}
 
 		// Groups API
 		groupsGroup := apiGroup.Group("/groups")
 		{
-			groupsGroup.GET("", groupsAPI.GetGroups)
-			groupsGroup.GET("/:group_name", groupsAPI.GetGroupDetails)
-			groupsGroup.POST("/:group_name/start", groupsAPI.StartGroupProcesses)
-			groupsGroup.POST("/:group_name/stop", groupsAPI.StopGroupProcesses)
-			groupsGroup.POST("/:group_name/restart", groupsAPI.RestartGroupProcesses)
+			groupsGroup.GET("", permissionChecker.RequirePermission(models.PermissionProcessRead), groupsAPI.GetGroups)
+			groupsGroup.GET("/:group_name", permissionChecker.RequirePermission(models.PermissionProcessRead), groupsAPI.GetGroupDetails)
+			groupsGroup.POST("/:group_name/start", permissionChecker.RequirePermission(models.PermissionProcessExecute), groupsAPI.StartGroupProcesses)
+			groupsGroup.POST("/:group_name/stop", permissionChecker.RequirePermission(models.PermissionProcessExecute), groupsAPI.StopGroupProcesses)
+			groupsGroup.POST("/:group_name/restart", permissionChecker.RequirePermission(models.PermissionProcessExecute), groupsAPI.RestartGroupProcesses)
 		}
 
 		// Processes Aggregation API
 		processesGroup := apiGroup.Group("/processes")
 		{
-			processesGroup.GET("/aggregated", processesAPI.GetAggregatedProcesses)
-			processesGroup.POST("/:process_name/start", processesAPI.BatchStartProcess)
-			processesGroup.POST("/:process_name/stop", processesAPI.BatchStopProcess)
-			processesGroup.POST("/:process_name/restart", processesAPI.BatchRestartProcess)
+			processesGroup.GET("/aggregated", permissionChecker.RequirePermission(models.PermissionProcessRead), processesAPI.GetAggregatedProcesses)
+			processesGroup.POST("/:process_name/start", permissionChecker.RequirePermission(models.PermissionProcessExecute), processesAPI.BatchStartProcess)
+			processesGroup.POST("/:process_name/stop", permissionChecker.RequirePermission(models.PermissionProcessExecute), processesAPI.BatchStopProcess)
+			processesGroup.POST("/:process_name/restart", permissionChecker.RequirePermission(models.PermissionProcessExecute), processesAPI.BatchRestartProcess)
 		}
 
 		// Activity Logs API
 		activityLogsGroup := apiGroup.Group("/activity-logs")
 		{
-			activityLogsGroup.GET("", activityLogsAPI.GetActivityLogs)
-			activityLogsGroup.GET("/recent", activityLogsAPI.GetRecentLogs)
-			activityLogsGroup.GET("/statistics", activityLogsAPI.GetLogStatistics)
-			activityLogsGroup.GET("/export", activityLogsAPI.ExportLogs)
-			activityLogsGroup.DELETE("/clean", activityLogsAPI.CleanOldLogs)
-			activityLogsGroup.DELETE("", activityLogsAPI.DeleteLogs)
+			activityLogsGroup.GET("", permissionChecker.RequirePermission(models.PermissionLogRead), activityLogsAPI.GetActivityLogs)
+			activityLogsGroup.GET("/recent", permissionChecker.RequirePermission(models.PermissionLogRead), activityLogsAPI.GetRecentLogs)
+			activityLogsGroup.GET("/statistics", permissionChecker.RequirePermission(models.PermissionLogRead), activityLogsAPI.GetLogStatistics)
+			activityLogsGroup.GET("/export", permissionChecker.RequirePermission(models.PermissionLogRead), activityLogsAPI.ExportLogs)
+			activityLogsGroup.DELETE("/clean", permissionChecker.RequirePermission(models.PermissionLogDelete), activityLogsAPI.CleanOldLogs)
+			activityLogsGroup.DELETE("", permissionChecker.RequirePermission(models.PermissionLogDelete), activityLogsAPI.DeleteLogs)
 		}
 
 		// Roles and Permissions API
 		rolesGroup := apiGroup.Group("/roles")
 		{
-			rolesGroup.GET("", roleHandler.GetRoles)
-			rolesGroup.POST("", roleHandler.CreateRole)
-			rolesGroup.GET("/:id", roleHandler.GetRole)
-			rolesGroup.PUT("/:id", roleHandler.UpdateRole)
-			rolesGroup.DELETE("/:id", roleHandler.DeleteRole)
-			rolesGroup.POST("/:id/permissions", roleHandler.AssignPermissions)
+			rolesGroup.GET("", permissionChecker.RequirePermission(models.PermissionUserRead), roleHandler.GetRoles)
+			rolesGroup.POST("", permissionChecker.RequirePermission(models.PermissionUserWrite), roleHandler.CreateRole)
+			rolesGroup.GET("/:id", permissionChecker.RequirePermission(models.PermissionUserRead), roleHandler.GetRole)
+			rolesGroup.PUT("/:id", permissionChecker.RequirePermission(models.PermissionUserWrite), roleHandler.UpdateRole)
+			rolesGroup.DELETE("/:id", permissionChecker.RequirePermission(models.PermissionUserDelete), roleHandler.DeleteRole)
+			rolesGroup.POST("/:id/permissions", permissionChecker.RequirePermission(models.PermissionUserWrite), roleHandler.AssignPermissions)
 		}
 
 		// Role-User assignment API (separate group to avoid conflicts)
 		roleUsersGroup := apiGroup.Group("/role-users")
 		{
-			roleUsersGroup.POST("/:roleId/users/:userId", roleHandler.AssignRoleToUser)
-			roleUsersGroup.DELETE("/:roleId/users/:userId", roleHandler.RemoveRoleFromUser)
+			roleUsersGroup.POST("/:roleId/users/:userId", permissionChecker.RequirePermission(models.PermissionUserWrite), roleHandler.AssignRoleToUser)
+			roleUsersGroup.DELETE("/:roleId/users/:userId", permissionChecker.RequirePermission(models.PermissionUserWrite), roleHandler.RemoveRoleFromUser)
 		}
 
 		// Permissions API
 		permissionsGroup := apiGroup.Group("/permissions")
 		{
-			permissionsGroup.GET("", roleHandler.GetPermissions)
+			permissionsGroup.GET("", permissionChecker.RequirePermission(models.PermissionUserRead), roleHandler.GetPermissions)
 		}
 
 		// Alerts API
 		alertHandler := NewAlertHandler(db, hub, activityLogService)
-		alertsGroup := apiGroup.Group("/alerts")
+		alertsGroup := apiGroup.Group("/alerts", permissionChecker.RequirePermission(models.PermissionSystemManage))
 		{
 			// Alert rules management
 			alertsGroup.POST("/rules", alertHandler.CreateAlertRule)
@@ -197,144 +201,144 @@ func SetupRoutes(r *gin.Engine, db *gorm.DB, service *supervisor.SupervisorServi
 		processEnhancedGroup := apiGroup.Group("/process-enhanced")
 		{
 			// Task scheduler management
-			processEnhancedGroup.POST("/scheduler/start", processEnhancedHandler.StartScheduler)
-			processEnhancedGroup.POST("/scheduler/stop", processEnhancedHandler.StopScheduler)
+			processEnhancedGroup.POST("/scheduler/start", permissionChecker.RequirePermission(models.PermissionProcessExecute), processEnhancedHandler.StartScheduler)
+			processEnhancedGroup.POST("/scheduler/stop", permissionChecker.RequirePermission(models.PermissionProcessExecute), processEnhancedHandler.StopScheduler)
 
 			// Process group management
-			processEnhancedGroup.POST("/groups", processEnhancedHandler.CreateProcessGroup)
-			processEnhancedGroup.GET("/groups", processEnhancedHandler.GetProcessGroups)
-			processEnhancedGroup.GET("/groups/:id", processEnhancedHandler.GetProcessGroup)
-			processEnhancedGroup.PUT("/groups/:id", processEnhancedHandler.UpdateProcessGroup)
-			processEnhancedGroup.DELETE("/groups/:id", processEnhancedHandler.DeleteProcessGroup)
-			processEnhancedGroup.POST("/groups/:id/processes", processEnhancedHandler.AddProcessToGroup)
-			processEnhancedGroup.DELETE("/groups/:id/processes", processEnhancedHandler.RemoveProcessFromGroup)
-			processEnhancedGroup.PUT("/groups/:id/reorder", processEnhancedHandler.ReorderProcessesInGroup)
+			processEnhancedGroup.POST("/groups", permissionChecker.RequirePermission(models.PermissionProcessWrite), processEnhancedHandler.CreateProcessGroup)
+			processEnhancedGroup.GET("/groups", permissionChecker.RequirePermission(models.PermissionProcessRead), processEnhancedHandler.GetProcessGroups)
+			processEnhancedGroup.GET("/groups/:id", permissionChecker.RequirePermission(models.PermissionProcessRead), processEnhancedHandler.GetProcessGroup)
+			processEnhancedGroup.PUT("/groups/:id", permissionChecker.RequirePermission(models.PermissionProcessWrite), processEnhancedHandler.UpdateProcessGroup)
+			processEnhancedGroup.DELETE("/groups/:id", permissionChecker.RequirePermission(models.PermissionProcessDelete), processEnhancedHandler.DeleteProcessGroup)
+			processEnhancedGroup.POST("/groups/:id/processes", permissionChecker.RequirePermission(models.PermissionProcessWrite), processEnhancedHandler.AddProcessToGroup)
+			processEnhancedGroup.DELETE("/groups/:id/processes", permissionChecker.RequirePermission(models.PermissionProcessWrite), processEnhancedHandler.RemoveProcessFromGroup)
+			processEnhancedGroup.PUT("/groups/:id/reorder", permissionChecker.RequirePermission(models.PermissionProcessWrite), processEnhancedHandler.ReorderProcessesInGroup)
 
 			// Process dependency management
-			processEnhancedGroup.POST("/dependencies", processEnhancedHandler.CreateProcessDependency)
-			processEnhancedGroup.GET("/dependencies", processEnhancedHandler.GetProcessDependencies)
-			processEnhancedGroup.GET("/dependent-processes", processEnhancedHandler.GetDependentProcesses)
-			processEnhancedGroup.DELETE("/dependencies/:id", processEnhancedHandler.DeleteProcessDependency)
-			processEnhancedGroup.POST("/startup-order", processEnhancedHandler.GetStartupOrder)
+			processEnhancedGroup.POST("/dependencies", permissionChecker.RequirePermission(models.PermissionProcessWrite), processEnhancedHandler.CreateProcessDependency)
+			processEnhancedGroup.GET("/dependencies", permissionChecker.RequirePermission(models.PermissionProcessRead), processEnhancedHandler.GetProcessDependencies)
+			processEnhancedGroup.GET("/dependent-processes", permissionChecker.RequirePermission(models.PermissionProcessRead), processEnhancedHandler.GetDependentProcesses)
+			processEnhancedGroup.DELETE("/dependencies/:id", permissionChecker.RequirePermission(models.PermissionProcessDelete), processEnhancedHandler.DeleteProcessDependency)
+			processEnhancedGroup.POST("/startup-order", permissionChecker.RequirePermission(models.PermissionProcessRead), processEnhancedHandler.GetStartupOrder)
 
 			// Scheduled task management
-			processEnhancedGroup.POST("/scheduled-tasks", processEnhancedHandler.CreateScheduledTask)
-			processEnhancedGroup.GET("/scheduled-tasks", processEnhancedHandler.GetScheduledTasks)
-			processEnhancedGroup.GET("/scheduled-tasks/:id", processEnhancedHandler.GetScheduledTask)
-			processEnhancedGroup.PUT("/scheduled-tasks/:id", processEnhancedHandler.UpdateScheduledTask)
-			processEnhancedGroup.DELETE("/scheduled-tasks/:id", processEnhancedHandler.DeleteScheduledTask)
-			processEnhancedGroup.GET("/scheduled-tasks/:id/executions", processEnhancedHandler.GetTaskExecutions)
+			processEnhancedGroup.POST("/scheduled-tasks", permissionChecker.RequirePermission(models.PermissionProcessWrite), processEnhancedHandler.CreateScheduledTask)
+			processEnhancedGroup.GET("/scheduled-tasks", permissionChecker.RequirePermission(models.PermissionProcessRead), processEnhancedHandler.GetScheduledTasks)
+			processEnhancedGroup.GET("/scheduled-tasks/:id", permissionChecker.RequirePermission(models.PermissionProcessRead), processEnhancedHandler.GetScheduledTask)
+			processEnhancedGroup.PUT("/scheduled-tasks/:id", permissionChecker.RequirePermission(models.PermissionProcessWrite), processEnhancedHandler.UpdateScheduledTask)
+			processEnhancedGroup.DELETE("/scheduled-tasks/:id", permissionChecker.RequirePermission(models.PermissionProcessDelete), processEnhancedHandler.DeleteScheduledTask)
+			processEnhancedGroup.GET("/scheduled-tasks/:id/executions", permissionChecker.RequirePermission(models.PermissionProcessRead), processEnhancedHandler.GetTaskExecutions)
 
 			// Process template management
-			processEnhancedGroup.POST("/templates", processEnhancedHandler.CreateProcessTemplate)
-			processEnhancedGroup.GET("/templates", processEnhancedHandler.GetProcessTemplates)
-			processEnhancedGroup.GET("/templates/:id", processEnhancedHandler.GetProcessTemplate)
-			processEnhancedGroup.PUT("/templates/:id", processEnhancedHandler.UpdateProcessTemplate)
-			processEnhancedGroup.DELETE("/templates/:id", processEnhancedHandler.DeleteProcessTemplate)
-			processEnhancedGroup.POST("/templates/:id/use", processEnhancedHandler.UseTemplate)
+			processEnhancedGroup.POST("/templates", permissionChecker.RequirePermission(models.PermissionProcessWrite), processEnhancedHandler.CreateProcessTemplate)
+			processEnhancedGroup.GET("/templates", permissionChecker.RequirePermission(models.PermissionProcessRead), processEnhancedHandler.GetProcessTemplates)
+			processEnhancedGroup.GET("/templates/:id", permissionChecker.RequirePermission(models.PermissionProcessRead), processEnhancedHandler.GetProcessTemplate)
+			processEnhancedGroup.PUT("/templates/:id", permissionChecker.RequirePermission(models.PermissionProcessWrite), processEnhancedHandler.UpdateProcessTemplate)
+			processEnhancedGroup.DELETE("/templates/:id", permissionChecker.RequirePermission(models.PermissionProcessDelete), processEnhancedHandler.DeleteProcessTemplate)
+			processEnhancedGroup.POST("/templates/:id/use", permissionChecker.RequirePermission(models.PermissionProcessWrite), processEnhancedHandler.UseTemplate)
 
 			// Process configuration backup management
-			processEnhancedGroup.POST("/backups", processEnhancedHandler.CreateProcessBackup)
-			processEnhancedGroup.GET("/backups", processEnhancedHandler.GetProcessBackups)
-			processEnhancedGroup.POST("/backups/:id/restore", processEnhancedHandler.RestoreProcessBackup)
+			processEnhancedGroup.POST("/backups", permissionChecker.RequirePermission(models.PermissionProcessWrite), processEnhancedHandler.CreateProcessBackup)
+			processEnhancedGroup.GET("/backups", permissionChecker.RequirePermission(models.PermissionProcessRead), processEnhancedHandler.GetProcessBackups)
+			processEnhancedGroup.POST("/backups/:id/restore", permissionChecker.RequirePermission(models.PermissionProcessWrite), processEnhancedHandler.RestoreProcessBackup)
 
 			// Process performance metrics
-			processEnhancedGroup.POST("/metrics", processEnhancedHandler.RecordProcessMetrics)
-			processEnhancedGroup.GET("/metrics", processEnhancedHandler.GetProcessMetrics)
-			processEnhancedGroup.GET("/metrics/statistics", processEnhancedHandler.GetProcessMetricsStatistics)
+			processEnhancedGroup.POST("/metrics", permissionChecker.RequirePermission(models.PermissionProcessWrite), processEnhancedHandler.RecordProcessMetrics)
+			processEnhancedGroup.GET("/metrics", permissionChecker.RequirePermission(models.PermissionProcessRead), processEnhancedHandler.GetProcessMetrics)
+			processEnhancedGroup.GET("/metrics/statistics", permissionChecker.RequirePermission(models.PermissionProcessRead), processEnhancedHandler.GetProcessMetricsStatistics)
 
 			// Data cleanup
-			processEnhancedGroup.POST("/cleanup", processEnhancedHandler.CleanupOldData)
+			processEnhancedGroup.POST("/cleanup", permissionChecker.RequirePermission(models.PermissionProcessDelete), processEnhancedHandler.CleanupOldData)
 		}
 
 		// Configuration API
 		configurationGroup := apiGroup.Group("/configuration")
 		{
 			// 配置项管理
-			configurationGroup.GET("", configurationHandler.GetConfigurations)
-			configurationGroup.POST("", configurationHandler.CreateConfiguration)
-			configurationGroup.GET("/:id", configurationHandler.GetConfiguration)
-			configurationGroup.PUT("/:id", configurationHandler.UpdateConfiguration)
-			configurationGroup.DELETE("/:id", configurationHandler.DeleteConfiguration)
+			configurationGroup.GET("", permissionChecker.RequirePermission(models.PermissionConfigRead), configurationHandler.GetConfigurations)
+			configurationGroup.POST("", permissionChecker.RequirePermission(models.PermissionConfigWrite), configurationHandler.CreateConfiguration)
+			configurationGroup.GET("/:id", permissionChecker.RequirePermission(models.PermissionConfigRead), configurationHandler.GetConfiguration)
+			configurationGroup.PUT("/:id", permissionChecker.RequirePermission(models.PermissionConfigWrite), configurationHandler.UpdateConfiguration)
+			configurationGroup.DELETE("/:id", permissionChecker.RequirePermission(models.PermissionConfigDelete), configurationHandler.DeleteConfiguration)
 
 			// 环境变量管理
-			configurationGroup.GET("/env-vars", configurationHandler.GetEnvironmentVariables)
-			configurationGroup.POST("/env-vars", configurationHandler.CreateEnvironmentVariable)
-			configurationGroup.GET("/env-vars/:id", configurationHandler.GetEnvironmentVariable)
-			configurationGroup.PUT("/env-vars/:id", configurationHandler.UpdateEnvironmentVariable)
-			configurationGroup.DELETE("/env-vars/:id", configurationHandler.DeleteEnvironmentVariable)
+			configurationGroup.GET("/env-vars", permissionChecker.RequirePermission(models.PermissionEnvVarRead), configurationHandler.GetEnvironmentVariables)
+			configurationGroup.POST("/env-vars", permissionChecker.RequirePermission(models.PermissionEnvVarWrite), configurationHandler.CreateEnvironmentVariable)
+			configurationGroup.GET("/env-vars/:id", permissionChecker.RequirePermission(models.PermissionEnvVarRead), configurationHandler.GetEnvironmentVariable)
+			configurationGroup.PUT("/env-vars/:id", permissionChecker.RequirePermission(models.PermissionEnvVarWrite), configurationHandler.UpdateEnvironmentVariable)
+			configurationGroup.DELETE("/env-vars/:id", permissionChecker.RequirePermission(models.PermissionEnvVarDelete), configurationHandler.DeleteEnvironmentVariable)
 
 			// 配置备份管理
-			configurationGroup.GET("/backups", configurationHandler.GetBackups)
-			configurationGroup.POST("/backups", configurationHandler.CreateBackup)
-			configurationGroup.GET("/backups/:id", configurationHandler.GetBackup)
-			configurationGroup.POST("/backups/:id/restore", configurationHandler.RestoreBackup)
-			configurationGroup.DELETE("/backups/:id", configurationHandler.DeleteBackup)
+			configurationGroup.GET("/backups", permissionChecker.RequirePermission(models.PermissionConfigRead), configurationHandler.GetBackups)
+			configurationGroup.POST("/backups", permissionChecker.RequirePermission(models.PermissionConfigWrite), configurationHandler.CreateBackup)
+			configurationGroup.GET("/backups/:id", permissionChecker.RequirePermission(models.PermissionConfigRead), configurationHandler.GetBackup)
+			configurationGroup.POST("/backups/:id/restore", permissionChecker.RequirePermission(models.PermissionConfigWrite), configurationHandler.RestoreBackup)
+			configurationGroup.DELETE("/backups/:id", permissionChecker.RequirePermission(models.PermissionConfigDelete), configurationHandler.DeleteBackup)
 
 			// 配置导入导出
-			configurationGroup.GET("/export", configurationHandler.ExportConfigurations)
-			configurationGroup.POST("/import", configurationHandler.ImportConfigurations)
+			configurationGroup.GET("/export", permissionChecker.RequirePermission(models.PermissionConfigRead), configurationHandler.ExportConfigurations)
+			configurationGroup.POST("/import", permissionChecker.RequirePermission(models.PermissionConfigWrite), configurationHandler.ImportConfigurations)
 
 			// 配置变更历史
-			configurationGroup.GET("/history", configurationHandler.GetConfigurationHistory)
+			configurationGroup.GET("/history", permissionChecker.RequirePermission(models.PermissionConfigRead), configurationHandler.GetConfigurationHistory)
 
 			// 审计日志
-			configurationGroup.GET("/audit-logs", configurationHandler.GetAuditLogs)
+			configurationGroup.GET("/audit-logs", permissionChecker.RequirePermission(models.PermissionConfigRead), configurationHandler.GetAuditLogs)
 
 			// 数据清理
-			configurationGroup.POST("/cleanup", configurationHandler.CleanupOldData)
+			configurationGroup.POST("/cleanup", permissionChecker.RequirePermission(models.PermissionConfigDelete), configurationHandler.CleanupOldData)
 		}
 
 		// Log Analysis API
 		logAnalysisGroup := apiGroup.Group("/logs")
 		{
 			// 日志条目管理
-			logAnalysisGroup.GET("", logAnalysisHandler.GetLogEntries)
-			logAnalysisGroup.POST("", logAnalysisHandler.CreateLogEntry)
-			logAnalysisGroup.GET("/:id", logAnalysisHandler.GetLogEntry)
-			logAnalysisGroup.DELETE("/:id", logAnalysisHandler.DeleteLogEntry)
+			logAnalysisGroup.GET("", permissionChecker.RequirePermission(models.PermissionLogRead), logAnalysisHandler.GetLogEntries)
+			logAnalysisGroup.POST("", permissionChecker.RequirePermission(models.PermissionLogWrite), logAnalysisHandler.CreateLogEntry)
+			logAnalysisGroup.GET("/:id", permissionChecker.RequirePermission(models.PermissionLogRead), logAnalysisHandler.GetLogEntry)
+			logAnalysisGroup.DELETE("/:id", permissionChecker.RequirePermission(models.PermissionLogDelete), logAnalysisHandler.DeleteLogEntry)
 
 			// 分析规则管理
-			logAnalysisGroup.GET("/rules", logAnalysisHandler.GetAnalysisRules)
-			logAnalysisGroup.POST("/rules", logAnalysisHandler.CreateAnalysisRule)
-			logAnalysisGroup.GET("/rules/:id", logAnalysisHandler.GetAnalysisRule)
-			logAnalysisGroup.PUT("/rules/:id", logAnalysisHandler.UpdateAnalysisRule)
-			logAnalysisGroup.DELETE("/rules/:id", logAnalysisHandler.DeleteAnalysisRule)
+			logAnalysisGroup.GET("/rules", permissionChecker.RequirePermission(models.PermissionLogRead), logAnalysisHandler.GetAnalysisRules)
+			logAnalysisGroup.POST("/rules", permissionChecker.RequirePermission(models.PermissionLogWrite), logAnalysisHandler.CreateAnalysisRule)
+			logAnalysisGroup.GET("/rules/:id", permissionChecker.RequirePermission(models.PermissionLogRead), logAnalysisHandler.GetAnalysisRule)
+			logAnalysisGroup.PUT("/rules/:id", permissionChecker.RequirePermission(models.PermissionLogWrite), logAnalysisHandler.UpdateAnalysisRule)
+			logAnalysisGroup.DELETE("/rules/:id", permissionChecker.RequirePermission(models.PermissionLogDelete), logAnalysisHandler.DeleteAnalysisRule)
 
 			// 日志统计
-			logAnalysisGroup.GET("/statistics", logAnalysisHandler.GetLogStatistics)
+			logAnalysisGroup.GET("/statistics", permissionChecker.RequirePermission(models.PermissionLogRead), logAnalysisHandler.GetLogStatistics)
 
 			// 日志告警
-			logAnalysisGroup.GET("/alerts", logAnalysisHandler.GetLogAlerts)
-			logAnalysisGroup.POST("/alerts/:id/acknowledge", logAnalysisHandler.AcknowledgeAlert)
-			logAnalysisGroup.POST("/alerts/:id/resolve", logAnalysisHandler.ResolveAlert)
+			logAnalysisGroup.GET("/alerts", permissionChecker.RequirePermission(models.PermissionLogRead), logAnalysisHandler.GetLogAlerts)
+			logAnalysisGroup.POST("/alerts/:id/acknowledge", permissionChecker.RequirePermission(models.PermissionLogWrite), logAnalysisHandler.AcknowledgeAlert)
+			logAnalysisGroup.POST("/alerts/:id/resolve", permissionChecker.RequirePermission(models.PermissionLogWrite), logAnalysisHandler.ResolveAlert)
 
 			// 日志过滤器
-			logAnalysisGroup.GET("/filters", logAnalysisHandler.GetLogFilters)
-			logAnalysisGroup.POST("/filters", logAnalysisHandler.CreateLogFilter)
-			logAnalysisGroup.PUT("/filters/:id", logAnalysisHandler.UpdateLogFilter)
-			logAnalysisGroup.DELETE("/filters/:id", logAnalysisHandler.DeleteLogFilter)
+			logAnalysisGroup.GET("/filters", permissionChecker.RequirePermission(models.PermissionLogRead), logAnalysisHandler.GetLogFilters)
+			logAnalysisGroup.POST("/filters", permissionChecker.RequirePermission(models.PermissionLogWrite), logAnalysisHandler.CreateLogFilter)
+			logAnalysisGroup.PUT("/filters/:id", permissionChecker.RequirePermission(models.PermissionLogWrite), logAnalysisHandler.UpdateLogFilter)
+			logAnalysisGroup.DELETE("/filters/:id", permissionChecker.RequirePermission(models.PermissionLogDelete), logAnalysisHandler.DeleteLogFilter)
 
 			// 日志导出
-			logAnalysisGroup.GET("/exports", logAnalysisHandler.GetLogExports)
-			logAnalysisGroup.POST("/exports", logAnalysisHandler.CreateLogExport)
-			logAnalysisGroup.GET("/exports/:id", logAnalysisHandler.GetLogExport)
-			logAnalysisGroup.DELETE("/exports/:id", logAnalysisHandler.DeleteLogExport)
+			logAnalysisGroup.GET("/exports", permissionChecker.RequirePermission(models.PermissionLogRead), logAnalysisHandler.GetLogExports)
+			logAnalysisGroup.POST("/exports", permissionChecker.RequirePermission(models.PermissionLogWrite), logAnalysisHandler.CreateLogExport)
+			logAnalysisGroup.GET("/exports/:id", permissionChecker.RequirePermission(models.PermissionLogRead), logAnalysisHandler.GetLogExport)
+			logAnalysisGroup.DELETE("/exports/:id", permissionChecker.RequirePermission(models.PermissionLogDelete), logAnalysisHandler.DeleteLogExport)
 
 			// 保留策略
-			logAnalysisGroup.GET("/retention-policies", logAnalysisHandler.GetRetentionPolicies)
-			logAnalysisGroup.POST("/retention-policies", logAnalysisHandler.CreateRetentionPolicy)
-			logAnalysisGroup.PUT("/retention-policies/:id", logAnalysisHandler.UpdateRetentionPolicy)
-			logAnalysisGroup.DELETE("/retention-policies/:id", logAnalysisHandler.DeleteRetentionPolicy)
-			logAnalysisGroup.POST("/retention-policies/execute", logAnalysisHandler.ExecuteRetentionPolicies)
+			logAnalysisGroup.GET("/retention-policies", permissionChecker.RequirePermission(models.PermissionLogRead), logAnalysisHandler.GetRetentionPolicies)
+			logAnalysisGroup.POST("/retention-policies", permissionChecker.RequirePermission(models.PermissionLogWrite), logAnalysisHandler.CreateRetentionPolicy)
+			logAnalysisGroup.PUT("/retention-policies/:id", permissionChecker.RequirePermission(models.PermissionLogWrite), logAnalysisHandler.UpdateRetentionPolicy)
+			logAnalysisGroup.DELETE("/retention-policies/:id", permissionChecker.RequirePermission(models.PermissionLogDelete), logAnalysisHandler.DeleteRetentionPolicy)
+			logAnalysisGroup.POST("/retention-policies/execute", permissionChecker.RequirePermission(models.PermissionLogDelete), logAnalysisHandler.ExecuteRetentionPolicies)
 
 			// 数据清理
-			logAnalysisGroup.POST("/cleanup", logAnalysisHandler.CleanupOldLogs)
+			logAnalysisGroup.POST("/cleanup", permissionChecker.RequirePermission(models.PermissionLogDelete), logAnalysisHandler.CleanupOldLogs)
 		}
 
 		// Data Management API
 		dataManagementHandler := NewDataManagementAPI(activityLogService)
-		dataManagementGroup := apiGroup.Group("/data-management")
+		dataManagementGroup := apiGroup.Group("/data-management", permissionChecker.RequirePermission(models.PermissionSystemManage))
 		{
 			// 数据导出
 			dataManagementGroup.POST("/export", dataManagementHandler.ExportData)
@@ -357,28 +361,28 @@ func SetupRoutes(r *gin.Engine, db *gorm.DB, service *supervisor.SupervisorServi
 		systemSettingsGroup := apiGroup.Group("/system-settings")
 		{
 			// 系统设置管理
-			systemSettingsGroup.GET("", systemSettingsHandler.GetSystemSettings)
-			systemSettingsGroup.GET("/:key", systemSettingsHandler.GetSystemSetting)
-			systemSettingsGroup.PUT("/:key", systemSettingsHandler.UpdateSystemSetting)
-			systemSettingsGroup.PUT("/batch", systemSettingsHandler.UpdateMultipleSettings)
-			systemSettingsGroup.DELETE("/:key", systemSettingsHandler.DeleteSystemSetting)
-			systemSettingsGroup.POST("/reset", systemSettingsHandler.ResetToDefaults)
+			systemSettingsGroup.GET("", permissionChecker.RequirePermission(models.PermissionSystemConfig), systemSettingsHandler.GetSystemSettings)
+			systemSettingsGroup.GET("/:key", permissionChecker.RequirePermission(models.PermissionSystemConfig), systemSettingsHandler.GetSystemSetting)
+			systemSettingsGroup.PUT("/:key", permissionChecker.RequirePermission(models.PermissionSystemConfig), systemSettingsHandler.UpdateSystemSetting)
+			systemSettingsGroup.PUT("/batch", permissionChecker.RequirePermission(models.PermissionSystemConfig), systemSettingsHandler.UpdateMultipleSettings)
+			systemSettingsGroup.DELETE("/:key", permissionChecker.RequirePermission(models.PermissionSystemConfig), systemSettingsHandler.DeleteSystemSetting)
+			systemSettingsGroup.POST("/reset", permissionChecker.RequirePermission(models.PermissionSystemManage), systemSettingsHandler.ResetToDefaults)
 
 			// 用户偏好设置（当前用户）
 			systemSettingsGroup.GET("/user-preferences", systemSettingsHandler.GetUserPreferences)
 			systemSettingsGroup.PUT("/user-preferences", systemSettingsHandler.UpdateUserPreferences)
 
 			// 管理员管理其他用户偏好
-			systemSettingsGroup.GET("/users/:userId/preferences", systemSettingsHandler.GetUserPreferencesByAdmin)
-			systemSettingsGroup.PUT("/users/:userId/preferences", systemSettingsHandler.UpdateUserPreferencesByAdmin)
+			systemSettingsGroup.GET("/users/:userId/preferences", permissionChecker.RequirePermission(models.PermissionUserRead), systemSettingsHandler.GetUserPreferencesByAdmin)
+			systemSettingsGroup.PUT("/users/:userId/preferences", permissionChecker.RequirePermission(models.PermissionUserWrite), systemSettingsHandler.UpdateUserPreferencesByAdmin)
 
 			// 邮件配置测试
-			systemSettingsGroup.POST("/test-email", systemSettingsHandler.TestEmailConfiguration)
+			systemSettingsGroup.POST("/test-email", permissionChecker.RequirePermission(models.PermissionSystemConfig), systemSettingsHandler.TestEmailConfiguration)
 		}
 
 		// Developer Tools API
 		developerToolsHandler := NewDeveloperToolsAPI(db, service, nil, hub)
-		developerGroup := apiGroup.Group("/developer")
+		developerGroup := apiGroup.Group("/developer", permissionChecker.RequirePermission(models.PermissionSystemManage))
 		{
 			// API 文档
 			developerGroup.GET("/api-docs", developerToolsHandler.GetApiEndpoints)

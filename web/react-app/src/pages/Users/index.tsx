@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import {
   Table,
   Tag,
@@ -6,31 +6,37 @@ import {
   Space,
   Card,
   message,
-  Modal,
   Form,
-  Input,
   Switch,
   Popconfirm,
   Avatar,
-  Drawer,
-  Tabs,
-  Divider,
-  Select,
+  Spin,
 } from 'antd';
 import {
   PlusOutlined,
   DeleteOutlined,
   ReloadOutlined,
   UserOutlined,
-  LockOutlined,
-  MailOutlined,
   SettingOutlined,
-  BellOutlined,
-  SaveOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import { usersApi, User, CreateUserRequest } from '../../api/users';
+import { usersApi, User, CreateUserRequest, AvailableNode, UserNodeAccess } from '../../api/users';
 import { useStore } from '../../store';
+
+const CreateUserModal = lazy(() => import('./CreateUserModal'));
+const UserSettingsDrawer = lazy(() => import('./UserSettingsDrawer'));
+
+interface EditableNodeAccess extends Pick<UserNodeAccess, 'node_id' | 'can_read' | 'can_write' | 'can_delete'> {
+  node: AvailableNode;
+}
+
+function DeferredPanelFallback() {
+  return (
+    <div style={{ padding: 24, textAlign: 'center' }}>
+      <Spin />
+    </div>
+  );
+}
 
 const Users: React.FC = () => {
   const { user: currentUser, t } = useStore();
@@ -44,6 +50,9 @@ const Users: React.FC = () => {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [saving, setSaving] = useState(false);
+  const [nodeAccessLoading, setNodeAccessLoading] = useState(false);
+  const [restrictNodeAccess, setRestrictNodeAccess] = useState(false);
+  const [nodeAccessRows, setNodeAccessRows] = useState<EditableNodeAccess[]>([]);
   const [createForm] = Form.useForm();
   const [profileForm] = Form.useForm();
   const [passwordForm] = Form.useForm();
@@ -109,7 +118,11 @@ const Users: React.FC = () => {
     
     // Load user preferences from backend
     try {
-      const prefs = await usersApi.getUserPreferences(user.id);
+      const [prefs, nodeAccessResponse] = await Promise.all([
+        usersApi.getUserPreferences(user.id),
+        isAdmin ? usersApi.getUserNodeAccess(user.id) : Promise.resolve(null),
+      ]);
+
       // Update profile form with timezone
       profileForm.setFieldsValue({
         timezone: prefs.timezone || 'UTC',
@@ -122,6 +135,28 @@ const Users: React.FC = () => {
         node_status_changes: prefs.node_status_changes ?? false,
         weekly_report: prefs.weekly_report ?? false,
       });
+
+      if (nodeAccessResponse?.data) {
+        const accessByNodeId = new Map<number, UserNodeAccess>(
+          nodeAccessResponse.data.node_access.map((entry) => [entry.node_id, entry])
+        );
+        setRestrictNodeAccess(nodeAccessResponse.data.node_access.length > 0);
+        setNodeAccessRows(
+          nodeAccessResponse.data.available_nodes.map((node) => {
+            const existing = accessByNodeId.get(node.id);
+            return {
+              node_id: node.id,
+              can_read: existing?.can_read ?? false,
+              can_write: existing?.can_write ?? false,
+              can_delete: existing?.can_delete ?? false,
+              node,
+            };
+          })
+        );
+      } else {
+        setRestrictNodeAccess(false);
+        setNodeAccessRows([]);
+      }
     } catch (error) {
       console.error('Failed to load user preferences:', error);
       // Set defaults if loading fails
@@ -132,6 +167,8 @@ const Users: React.FC = () => {
         node_status_changes: false,
         weekly_report: false,
       });
+      setRestrictNodeAccess(false);
+      setNodeAccessRows([]);
     }
   };
 
@@ -232,6 +269,132 @@ const Users: React.FC = () => {
       setSaving(false);
     }
   };
+
+  const updateNodeAccessRow = (
+    nodeId: number,
+    field: 'can_read' | 'can_write' | 'can_delete',
+    checked: boolean
+  ) => {
+    setNodeAccessRows((prev) =>
+      prev.map((row) => {
+        if (row.node_id !== nodeId) {
+          return row;
+        }
+
+        if (field === 'can_read') {
+          return {
+            ...row,
+            can_read: checked,
+            can_write: checked ? row.can_write : false,
+            can_delete: checked ? row.can_delete : false,
+          };
+        }
+
+        return {
+          ...row,
+          can_read: checked ? true : row.can_read,
+          [field]: checked,
+        };
+      })
+    );
+  };
+
+  const handleNodeAccessUpdate = async () => {
+    if (!selectedUser) return;
+
+    try {
+      setNodeAccessLoading(true);
+      const nodeAccessPayload = restrictNodeAccess
+        ? nodeAccessRows
+            .filter((row) => row.can_read || row.can_write || row.can_delete)
+            .map(({ node_id, can_read, can_write, can_delete }) => ({
+              node_id,
+              can_read,
+              can_write,
+              can_delete,
+            }))
+        : [];
+
+      const response = await usersApi.updateUserNodeAccess(selectedUser.id, {
+        node_access: nodeAccessPayload,
+      });
+
+      const accessByNodeId = new Map<number, UserNodeAccess>(
+        response.data.node_access.map((entry) => [entry.node_id, entry])
+      );
+      setNodeAccessRows((prev) =>
+        prev.map((row) => {
+          const updated = accessByNodeId.get(row.node_id);
+          return {
+            ...row,
+            can_read: updated?.can_read ?? false,
+            can_write: updated?.can_write ?? false,
+            can_delete: updated?.can_delete ?? false,
+          };
+        })
+      );
+
+      message.success(t.users.nodeAccessUpdated);
+    } catch (error: any) {
+      message.error(error.response?.data?.message || t.users.nodeAccessUpdateFailed);
+    } finally {
+      setNodeAccessLoading(false);
+    }
+  };
+
+  const nodeAccessColumns: ColumnsType<EditableNodeAccess> = [
+    {
+      title: t.processInstance.node,
+      key: 'node',
+      render: (_, record) => (
+        <div>
+          <div style={{ fontWeight: 500 }}>{record.node.name}</div>
+          <div style={{ fontSize: 12, color: '#8c8c8c' }}>
+            {record.node.environment || '-'} · {record.node.host}:{record.node.port}
+          </div>
+        </div>
+      ),
+    },
+    {
+      title: t.users.readAccess,
+      dataIndex: 'can_read',
+      key: 'can_read',
+      width: 96,
+      render: (value: boolean, record) => (
+        <Switch
+          checked={value}
+          disabled={!restrictNodeAccess}
+          onChange={(checked) => updateNodeAccessRow(record.node_id, 'can_read', checked)}
+        />
+      ),
+    },
+    {
+      title: t.users.writeAccess,
+      dataIndex: 'can_write',
+      key: 'can_write',
+      width: 96,
+      render: (value: boolean, record) => (
+        <Switch
+          checked={value}
+          disabled={!restrictNodeAccess}
+          onChange={(checked) => updateNodeAccessRow(record.node_id, 'can_write', checked)}
+        />
+      ),
+    },
+    {
+      title: t.users.deleteAccess,
+      dataIndex: 'can_delete',
+      key: 'can_delete',
+      width: 96,
+      render: (value: boolean, record) => (
+        <Switch
+          checked={value}
+          disabled={!restrictNodeAccess}
+          onChange={(checked) => updateNodeAccessRow(record.node_id, 'can_delete', checked)}
+        />
+      ),
+    },
+  ];
 
   const columns: ColumnsType<User> = [
     {
@@ -343,190 +506,42 @@ const Users: React.FC = () => {
         />
       </Card>
 
-      {/* Create User Modal */}
-      <Modal
-        title={t.users.addUser}
-        open={createModalVisible}
-        onOk={handleCreateSubmit}
-        onCancel={() => setCreateModalVisible(false)}
-        width={500}
-      >
-        <Form form={createForm} layout="vertical" initialValues={{ is_admin: false }}>
-          <Form.Item
-            name="username"
-            label={t.users.username}
-            rules={[
-              { required: true, message: t.login.usernameRequired },
-              { min: 3, max: 50, message: t.users.usernameLength },
-            ]}
-          >
-            <Input prefix={<UserOutlined />} placeholder={t.users.username} />
-          </Form.Item>
-          <Form.Item
-            name="email"
-            label={t.users.email}
-            rules={[
-              { required: true, message: t.users.pleaseEnterEmail },
-              { type: 'email', message: t.users.pleaseEnterValidEmail },
-            ]}
-          >
-            <Input prefix={<MailOutlined />} placeholder={t.users.email} />
-          </Form.Item>
-          <Form.Item name="full_name" label={t.users.fullName}>
-            <Input placeholder={t.users.fullName} />
-          </Form.Item>
-          <Form.Item
-            name="password"
-            label={t.users.password}
-            rules={[
-              { required: true, message: t.login.passwordRequired },
-              { min: 6, message: t.users.passwordMinLength },
-            ]}
-          >
-            <Input.Password prefix={<LockOutlined />} placeholder={t.users.password} />
-          </Form.Item>
-          <Form.Item name="is_admin" label={t.users.role} valuePropName="checked">
-            <Switch checkedChildren={t.users.admin} unCheckedChildren={t.users.user} />
-          </Form.Item>
-        </Form>
-      </Modal>
+      {createModalVisible && (
+        <Suspense fallback={<DeferredPanelFallback />}>
+          <CreateUserModal
+            open={createModalVisible}
+            form={createForm}
+            t={t}
+            onSubmit={handleCreateSubmit}
+            onCancel={() => setCreateModalVisible(false)}
+          />
+        </Suspense>
+      )}
 
-      {/* User Settings Drawer */}
-      <Drawer
-        title={`${t.users.userSettings}: ${selectedUser?.username || ''}`}
-        placement="right"
-        width={520}
-        onClose={() => setDrawerVisible(false)}
-        open={drawerVisible}
-      >
-        <Tabs
-          items={[
-            {
-              key: 'profile',
-              label: <span><UserOutlined /> {t.users.profile}</span>,
-              children: (
-                <Form form={profileForm} layout="vertical">
-                  <Form.Item name="username" label={t.users.username}>
-                    <Input prefix={<UserOutlined />} disabled />
-                  </Form.Item>
-                  <Form.Item
-                    name="email"
-                    label={t.users.email}
-                    rules={[
-                      { required: true, message: t.users.pleaseEnterEmail },
-                      { type: 'email', message: t.users.pleaseEnterValidEmail },
-                    ]}
-                  >
-                    <Input prefix={<MailOutlined />} />
-                  </Form.Item>
-                  <Form.Item name="full_name" label={t.users.fullName}>
-                    <Input placeholder={t.users.enterFullName} />
-                  </Form.Item>
-                  <Form.Item name="timezone" label={t.settings.timezone}>
-                    <Select
-                      options={[
-                        { label: 'UTC', value: 'UTC' },
-                        { label: 'America/New_York', value: 'America/New_York' },
-                        { label: 'America/Los_Angeles', value: 'America/Los_Angeles' },
-                        { label: 'Europe/London', value: 'Europe/London' },
-                        { label: 'Asia/Shanghai', value: 'Asia/Shanghai' },
-                        { label: 'Asia/Tokyo', value: 'Asia/Tokyo' },
-                      ]}
-                    />
-                  </Form.Item>
-                  {isAdmin && (
-                    <>
-                      <Divider />
-                      <Form.Item name="is_admin" label={t.users.adminRole} valuePropName="checked">
-                        <Switch checkedChildren={t.users.admin} unCheckedChildren={t.users.user} />
-                      </Form.Item>
-                      <Form.Item name="is_active" label={t.users.accountStatus} valuePropName="checked">
-                        <Switch checkedChildren={t.users.active} unCheckedChildren={t.users.inactive} />
-                      </Form.Item>
-                    </>
-                  )}
-                  <Form.Item>
-                    <Button type="primary" icon={<SaveOutlined />} onClick={handleProfileUpdate} loading={saving}>
-                      {t.users.saveProfile}
-                    </Button>
-                  </Form.Item>
-                </Form>
-              ),
-            },
-            {
-              key: 'security',
-              label: <span><LockOutlined /> {t.users.security}</span>,
-              children: (
-                <Form form={passwordForm} layout="vertical">
-                  <Form.Item
-                    name="new_password"
-                    label={t.users.newPassword}
-                    rules={[
-                      { required: true, message: t.users.pleaseEnterNewPassword },
-                      { min: 6, message: t.users.passwordMinLength },
-                    ]}
-                  >
-                    <Input.Password prefix={<LockOutlined />} placeholder={t.users.enterNewPassword} />
-                  </Form.Item>
-                  <Form.Item
-                    name="confirm_password"
-                    label={t.users.confirmPassword}
-                    dependencies={['new_password']}
-                    rules={[
-                      { required: true, message: t.users.pleaseConfirmPassword },
-                      ({ getFieldValue }) => ({
-                        validator(_, value) {
-                          if (!value || getFieldValue('new_password') === value) {
-                            return Promise.resolve();
-                          }
-                          return Promise.reject(new Error(t.users.passwordMismatch));
-                        },
-                      }),
-                    ]}
-                  >
-                    <Input.Password prefix={<LockOutlined />} placeholder={t.users.confirmNewPassword} />
-                  </Form.Item>
-                  <Form.Item>
-                    <Button type="primary" icon={<SaveOutlined />} onClick={handlePasswordChange} loading={saving}>
-                      {t.users.resetPassword}
-                    </Button>
-                  </Form.Item>
-                </Form>
-              ),
-            },
-            {
-              key: 'notifications',
-              label: <span><BellOutlined /> {t.users.notifications}</span>,
-              children: (
-                <Form form={notificationForm} layout="vertical">
-                  <Form.Item name="email_notifications" label={t.users.emailNotifications} valuePropName="checked">
-                    <Switch />
-                  </Form.Item>
-                  <Divider />
-                  <Form.Item name="process_alerts" label={t.users.processAlerts} valuePropName="checked">
-                    <Switch />
-                  </Form.Item>
-                  <Form.Item name="system_alerts" label={t.users.systemAlerts} valuePropName="checked">
-                    <Switch />
-                  </Form.Item>
-                  <Form.Item name="node_status_changes" label={t.users.nodeStatusChanges} valuePropName="checked">
-                    <Switch />
-                  </Form.Item>
-                  <Divider />
-                  <Form.Item name="weekly_report" label={t.users.weeklyReport} valuePropName="checked">
-                    <Switch />
-                  </Form.Item>
-                  <Form.Item>
-                    <Button type="primary" icon={<SaveOutlined />} onClick={handleNotificationUpdate} loading={saving}>
-                      {t.users.savePreferences}
-                    </Button>
-                  </Form.Item>
-                </Form>
-              ),
-            },
-          ]}
-        />
-      </Drawer>
+      {drawerVisible && selectedUser && (
+        <Suspense fallback={<DeferredPanelFallback />}>
+          <UserSettingsDrawer
+            t={t}
+            selectedUser={selectedUser}
+            open={drawerVisible}
+            onClose={() => setDrawerVisible(false)}
+            isAdmin={isAdmin}
+            saving={saving}
+            nodeAccessLoading={nodeAccessLoading}
+            profileForm={profileForm}
+            passwordForm={passwordForm}
+            notificationForm={notificationForm}
+            restrictNodeAccess={restrictNodeAccess}
+            setRestrictNodeAccess={setRestrictNodeAccess}
+            nodeAccessRows={nodeAccessRows}
+            nodeAccessColumns={nodeAccessColumns}
+            onProfileUpdate={handleProfileUpdate}
+            onPasswordChange={handlePasswordChange}
+            onNotificationUpdate={handleNotificationUpdate}
+            onNodeAccessUpdate={handleNodeAccessUpdate}
+          />
+        </Suspense>
+      )}
     </div>
   );
 };

@@ -33,8 +33,38 @@ type DeveloperToolsAPI struct {
 	hub       WebSocketHub
 }
 
+func defaultDeveloperToolsConfig() *config.DeveloperToolsConfig {
+	return &config.DeveloperToolsConfig{
+		Enabled:           true,
+		LogPath:           "logs/app.log",
+		MaxLogLines:       1000,
+		APIDocsEnabled:    true,
+		SampleDataEnabled: false,
+		MetricsEnabled:    true,
+		SystemMetrics: config.SystemMetricsConfig{
+			CPUMonitorEnabled:  true,
+			DiskMonitorEnabled: true,
+			UpdateInterval:     30,
+		},
+	}
+}
+
 // NewDeveloperToolsAPI creates a new DeveloperToolsAPI instance
 func NewDeveloperToolsAPI(db *gorm.DB, service *supervisor.SupervisorService, cfg *config.DeveloperToolsConfig, hub WebSocketHub) *DeveloperToolsAPI {
+	if cfg == nil {
+		cfg = defaultDeveloperToolsConfig()
+	}
+
+	if cfg.LogPath == "" {
+		cfg.LogPath = "logs/app.log"
+	}
+	if cfg.MaxLogLines == 0 {
+		cfg.MaxLogLines = 1000
+	}
+	if cfg.SystemMetrics.UpdateInterval == 0 {
+		cfg.SystemMetrics.UpdateInterval = 30
+	}
+
 	logReader := utils.NewLogReader(cfg)
 	return &DeveloperToolsAPI{
 		db:        db,
@@ -546,7 +576,7 @@ func (api *DeveloperToolsAPI) GetWebSocketMetrics(c *gin.Context) {
 	if api.hub != nil {
 		activeConnections = api.hub.GetConnectionCount()
 	}
-	
+
 	metrics := WebSocketMetrics{
 		ActiveConnections: int(activeConnections),
 		MessagesPerSecond: 0, // 需要实现消息速率统计

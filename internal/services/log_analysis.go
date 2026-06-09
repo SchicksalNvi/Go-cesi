@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"superview/internal/models"
 	"gorm.io/gorm"
+	"superview/internal/models"
 )
 
 // LogAnalysisService 日志分析服务
@@ -94,7 +94,7 @@ func (s *LogAnalysisService) CreateAnalysisRule(rule *models.LogAnalysisRule) er
 		}
 	}
 
-	if err := s.db.Create(rule).Error; err != nil {
+	if err := createAndPreserveBool(s.db, rule, "is_active", rule.IsActive); err != nil {
 		return fmt.Errorf("failed to create analysis rule: %v", err)
 	}
 
@@ -243,7 +243,7 @@ func (s *LogAnalysisService) GetLogAlerts(page, pageSize int, filters map[string
 }
 
 // AcknowledgeAlert 确认告警
-func (s *LogAnalysisService) AcknowledgeAlert(id uint, userID uint) error {
+func (s *LogAnalysisService) AcknowledgeAlert(id uint, userID string) error {
 	now := time.Now()
 	updates := map[string]interface{}{
 		"acknowledged":    true,
@@ -255,7 +255,7 @@ func (s *LogAnalysisService) AcknowledgeAlert(id uint, userID uint) error {
 }
 
 // ResolveAlert 解决告警
-func (s *LogAnalysisService) ResolveAlert(id uint, userID uint) error {
+func (s *LogAnalysisService) ResolveAlert(id uint, userID string) error {
 	now := time.Now()
 	updates := map[string]interface{}{
 		"resolved":    true,
@@ -273,7 +273,7 @@ func (s *LogAnalysisService) CreateLogFilter(filter *models.LogFilter) error {
 }
 
 // GetLogFilters 获取日志过滤器列表
-func (s *LogAnalysisService) GetLogFilters(userID uint, isPublic bool) ([]*models.LogFilter, error) {
+func (s *LogAnalysisService) GetLogFilters(userID string, isPublic bool) ([]*models.LogFilter, error) {
 	var filters []*models.LogFilter
 
 	query := s.db.Model(&models.LogFilter{})
@@ -291,12 +291,12 @@ func (s *LogAnalysisService) GetLogFilters(userID uint, isPublic bool) ([]*model
 }
 
 // UpdateLogFilter 更新日志过滤器
-func (s *LogAnalysisService) UpdateLogFilter(id uint, updates map[string]interface{}, userID uint) error {
+func (s *LogAnalysisService) UpdateLogFilter(id uint, updates map[string]interface{}, userID string) error {
 	return s.db.Model(&models.LogFilter{}).Where("id = ? AND created_by = ?", id, userID).Updates(updates).Error
 }
 
 // DeleteLogFilter 删除日志过滤器
-func (s *LogAnalysisService) DeleteLogFilter(id uint, userID uint) error {
+func (s *LogAnalysisService) DeleteLogFilter(id uint, userID string) error {
 	return s.db.Where("id = ? AND created_by = ?", id, userID).Delete(&models.LogFilter{}).Error
 }
 
@@ -313,7 +313,7 @@ func (s *LogAnalysisService) CreateLogExport(export *models.LogExport) error {
 }
 
 // GetLogExports 获取日志导出任务列表
-func (s *LogAnalysisService) GetLogExports(userID uint, page, pageSize int) ([]*models.LogExport, int64, error) {
+func (s *LogAnalysisService) GetLogExports(userID string, page, pageSize int) ([]*models.LogExport, int64, error) {
 	var exports []*models.LogExport
 	var total int64
 
@@ -334,7 +334,7 @@ func (s *LogAnalysisService) GetLogExports(userID uint, page, pageSize int) ([]*
 }
 
 // GetLogExportByID 根据ID获取日志导出任务
-func (s *LogAnalysisService) GetLogExportByID(id uint, userID uint) (*models.LogExport, error) {
+func (s *LogAnalysisService) GetLogExportByID(id uint, userID string) (*models.LogExport, error) {
 	var export models.LogExport
 	if err := s.db.Where("id = ? AND created_by = ?", id, userID).First(&export).Error; err != nil {
 		return nil, err
@@ -343,13 +343,13 @@ func (s *LogAnalysisService) GetLogExportByID(id uint, userID uint) (*models.Log
 }
 
 // DeleteLogExport 删除日志导出任务
-func (s *LogAnalysisService) DeleteLogExport(id uint, userID uint) error {
+func (s *LogAnalysisService) DeleteLogExport(id uint, userID string) error {
 	return s.db.Where("id = ? AND created_by = ?", id, userID).Delete(&models.LogExport{}).Error
 }
 
 // CreateRetentionPolicy 创建保留策略
 func (s *LogAnalysisService) CreateRetentionPolicy(policy *models.LogRetentionPolicy) error {
-	return s.db.Create(policy).Error
+	return createAndPreserveBool(s.db, policy, "is_active", policy.IsActive)
 }
 
 // GetRetentionPolicies 获取保留策略列表

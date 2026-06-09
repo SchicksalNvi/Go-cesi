@@ -38,13 +38,13 @@ func NewConfigurationHandler(db *gorm.DB, activityLogService ...*services.Activi
 
 // getUserWithPermissions 获取用户信息并检查权限
 func (h *ConfigurationHandler) getUserWithPermissions(c *gin.Context) (*models.User, error) {
-	userID, exists := c.Get("userID")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		return nil, fmt.Errorf("unauthorized")
 	}
 
 	var user models.User
-	err := h.db.Preload("Roles.Permissions").Where("id = ?", userID.(string)).First(&user).Error
+	err := h.db.Preload("Roles.Permissions").Where("id = ?", userID).First(&user).Error
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +73,7 @@ func (h *ConfigurationHandler) checkSecretPermission(user *models.User, resource
 // CreateConfiguration 创建配置项
 func (h *ConfigurationHandler) CreateConfiguration(c *gin.Context) {
 	// 权限检查
-	userID, exists := c.Get("user_id")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
@@ -88,7 +88,7 @@ func (h *ConfigurationHandler) CreateConfiguration(c *gin.Context) {
 		Type         string                  `json:"type" binding:"required"`
 		Scope        string                  `json:"scope" binding:"required"`
 		NodeID       *uint                   `json:"node_id"`
-		UserID       *uint                   `json:"user_id"`
+		UserID       *string                 `json:"user_id"`
 		IsRequired   bool                    `json:"is_required"`
 		IsReadonly   bool                    `json:"is_readonly"`
 		IsSecret     bool                    `json:"is_secret"`
@@ -116,7 +116,7 @@ func (h *ConfigurationHandler) CreateConfiguration(c *gin.Context) {
 		IsReadonly:   req.IsReadonly,
 		IsSecret:     req.IsSecret,
 		Order:        req.Order,
-		CreatedBy:    userID.(uint),
+		CreatedBy:    userID,
 	}
 
 	// 处理验证规则
@@ -170,9 +170,7 @@ func (h *ConfigurationHandler) GetConfigurations(c *gin.Context) {
 		}
 	}
 	if userID := c.Query("user_id"); userID != "" {
-		if id, err := strconv.ParseUint(userID, 10, 32); err == nil {
-			filters["user_id"] = uint(id)
-		}
+		filters["user_id"] = userID
 	}
 	if isRequired := c.Query("is_required"); isRequired != "" {
 		filters["is_required"] = isRequired == "true"
@@ -229,9 +227,13 @@ func (h *ConfigurationHandler) GetConfiguration(c *gin.Context) {
 		return
 	}
 
-	// 注意：由于 User.ID 是 string (UUID) 而 service 期望 uint，这里传递 0
-	// 审计日志的用户关联需要在后续版本中修复数据模型
-	config, err := h.service.GetConfigurationByID(uint(id), 0, showSecret)
+	configUserID, exists := getUserIDString(c)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	config, err := h.service.GetConfigurationByID(uint(id), configUserID, showSecret)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Configuration not found"})
@@ -252,7 +254,7 @@ func (h *ConfigurationHandler) UpdateConfiguration(c *gin.Context) {
 		return
 	}
 
-	userID, exists := c.Get("user_id")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
@@ -264,7 +266,7 @@ func (h *ConfigurationHandler) UpdateConfiguration(c *gin.Context) {
 		return
 	}
 
-	err = h.service.UpdateConfiguration(uint(id), updates, userID.(uint))
+	err = h.service.UpdateConfiguration(uint(id), updates, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -286,13 +288,13 @@ func (h *ConfigurationHandler) DeleteConfiguration(c *gin.Context) {
 		return
 	}
 
-	userID, exists := c.Get("user_id")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	err = h.service.DeleteConfiguration(uint(id), userID.(uint))
+	err = h.service.DeleteConfiguration(uint(id), userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -308,7 +310,7 @@ func (h *ConfigurationHandler) DeleteConfiguration(c *gin.Context) {
 
 // CreateEnvironmentVariable 创建环境变量
 func (h *ConfigurationHandler) CreateEnvironmentVariable(c *gin.Context) {
-	userID, exists := c.Get("user_id")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
@@ -321,7 +323,7 @@ func (h *ConfigurationHandler) CreateEnvironmentVariable(c *gin.Context) {
 		NodeID      *uint   `json:"node_id"`
 		ProcessName *string `json:"process_name"`
 		IsSecret    bool    `json:"is_secret"`
-		IsActive    bool    `json:"is_active"`
+		IsActive    *bool   `json:"is_active"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -336,8 +338,8 @@ func (h *ConfigurationHandler) CreateEnvironmentVariable(c *gin.Context) {
 		NodeID:      req.NodeID,
 		ProcessName: req.ProcessName,
 		IsSecret:    req.IsSecret,
-		IsActive:    req.IsActive,
-		CreatedBy:   userID.(uint),
+		IsActive:    boolValueOrDefault(req.IsActive, true),
+		CreatedBy:   userID,
 	}
 
 	err := h.service.CreateEnvironmentVariable(envVar)
@@ -417,9 +419,13 @@ func (h *ConfigurationHandler) GetEnvironmentVariable(c *gin.Context) {
 		return
 	}
 
-	// 注意：由于 User.ID 是 string (UUID) 而 service 期望 uint，这里传递 0
-	// 审计日志的用户关联需要在后续版本中修复数据模型
-	envVar, err := h.service.GetEnvironmentVariableByID(uint(id), 0, showSecret)
+	envUserID, exists := getUserIDString(c)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	envVar, err := h.service.GetEnvironmentVariableByID(uint(id), envUserID, showSecret)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Environment variable not found"})
@@ -440,7 +446,7 @@ func (h *ConfigurationHandler) UpdateEnvironmentVariable(c *gin.Context) {
 		return
 	}
 
-	userID, exists := c.Get("user_id")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
@@ -452,7 +458,7 @@ func (h *ConfigurationHandler) UpdateEnvironmentVariable(c *gin.Context) {
 		return
 	}
 
-	err = h.service.UpdateEnvironmentVariable(uint(id), updates, userID.(uint))
+	err = h.service.UpdateEnvironmentVariable(uint(id), updates, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -474,13 +480,13 @@ func (h *ConfigurationHandler) DeleteEnvironmentVariable(c *gin.Context) {
 		return
 	}
 
-	userID, exists := c.Get("user_id")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	err = h.service.DeleteEnvironmentVariable(uint(id), userID.(uint))
+	err = h.service.DeleteEnvironmentVariable(uint(id), userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -496,21 +502,21 @@ func (h *ConfigurationHandler) DeleteEnvironmentVariable(c *gin.Context) {
 
 // CreateBackup 创建配置备份
 func (h *ConfigurationHandler) CreateBackup(c *gin.Context) {
-	userID, exists := c.Get("user_id")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
 	var req struct {
-		Name        string `json:"name" binding:"required"`
-		Description string `json:"description"`
-		BackupType  string `json:"backup_type" binding:"required"`
-		Scope       string `json:"scope" binding:"required"`
-		NodeID      *uint  `json:"node_id"`
-		UserID      *uint  `json:"user_id"`
-		Version     string `json:"version"`
-		IsAutomatic bool   `json:"is_automatic"`
+		Name        string  `json:"name" binding:"required"`
+		Description string  `json:"description"`
+		BackupType  string  `json:"backup_type" binding:"required"`
+		Scope       string  `json:"scope" binding:"required"`
+		NodeID      *uint   `json:"node_id"`
+		UserID      *string `json:"user_id"`
+		Version     string  `json:"version"`
+		IsAutomatic bool    `json:"is_automatic"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -527,7 +533,7 @@ func (h *ConfigurationHandler) CreateBackup(c *gin.Context) {
 		UserID:      req.UserID,
 		Version:     req.Version,
 		IsAutomatic: req.IsAutomatic,
-		CreatedBy:   userID.(uint),
+		CreatedBy:   userID,
 	}
 
 	err := h.service.CreateBackup(backup)
@@ -564,9 +570,7 @@ func (h *ConfigurationHandler) GetBackups(c *gin.Context) {
 		}
 	}
 	if userID := c.Query("user_id"); userID != "" {
-		if id, err := strconv.ParseUint(userID, 10, 32); err == nil {
-			filters["user_id"] = uint(id)
-		}
+		filters["user_id"] = userID
 	}
 	if isAutomatic := c.Query("is_automatic"); isAutomatic != "" {
 		filters["is_automatic"] = isAutomatic == "true"
@@ -598,13 +602,13 @@ func (h *ConfigurationHandler) GetBackup(c *gin.Context) {
 		return
 	}
 
-	userID, exists := c.Get("user_id")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	backup, err := h.service.GetBackupByID(uint(id), userID.(uint))
+	backup, err := h.service.GetBackupByID(uint(id), userID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Backup not found"})
@@ -625,7 +629,7 @@ func (h *ConfigurationHandler) RestoreBackup(c *gin.Context) {
 		return
 	}
 
-	userID, exists := c.Get("user_id")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
@@ -648,7 +652,7 @@ func (h *ConfigurationHandler) RestoreBackup(c *gin.Context) {
 		"restore_env_vars":   req.RestoreEnvVars,
 	}
 
-	err = h.service.RestoreBackup(uint(id), userID.(uint), options)
+	err = h.service.RestoreBackup(uint(id), userID, options)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -670,13 +674,13 @@ func (h *ConfigurationHandler) DeleteBackup(c *gin.Context) {
 		return
 	}
 
-	userID, exists := c.Get("user_id")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	err = h.service.DeleteBackup(uint(id), userID.(uint))
+	err = h.service.DeleteBackup(uint(id), userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -692,7 +696,7 @@ func (h *ConfigurationHandler) DeleteBackup(c *gin.Context) {
 
 // ExportConfigurations 导出配置
 func (h *ConfigurationHandler) ExportConfigurations(c *gin.Context) {
-	userID, exists := c.Get("user_id")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
@@ -712,15 +716,13 @@ func (h *ConfigurationHandler) ExportConfigurations(c *gin.Context) {
 		}
 	}
 	if userIDParam := c.Query("user_id"); userIDParam != "" {
-		if id, err := strconv.ParseUint(userIDParam, 10, 32); err == nil {
-			filters["user_id"] = uint(id)
-		}
+		filters["user_id"] = userIDParam
 	}
 	if processName := c.Query("process_name"); processName != "" {
 		filters["process_name"] = processName
 	}
 
-	data, err := h.service.ExportConfigurations(filters, userID.(uint))
+	data, err := h.service.ExportConfigurations(filters, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -736,7 +738,7 @@ func (h *ConfigurationHandler) ExportConfigurations(c *gin.Context) {
 
 // ImportConfigurations 导入配置
 func (h *ConfigurationHandler) ImportConfigurations(c *gin.Context) {
-	userID, exists := c.Get("user_id")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
@@ -760,7 +762,7 @@ func (h *ConfigurationHandler) ImportConfigurations(c *gin.Context) {
 		"import_env_vars":    req.ImportEnvVars,
 	}
 
-	err := h.service.ImportConfigurations(req.Data, userID.(uint), options)
+	err := h.service.ImportConfigurations(req.Data, userID, options)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -856,9 +858,7 @@ func (h *ConfigurationHandler) GetAuditLogs(c *gin.Context) {
 		}
 	}
 	if createdBy := c.Query("created_by"); createdBy != "" {
-		if id, err := strconv.ParseUint(createdBy, 10, 32); err == nil {
-			filters["created_by"] = uint(id)
-		}
+		filters["created_by"] = createdBy
 	}
 	if success := c.Query("success"); success != "" {
 		filters["success"] = success == "true"

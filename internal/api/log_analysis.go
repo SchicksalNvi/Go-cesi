@@ -1,9 +1,9 @@
 package api
 
 import (
-	"fmt"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -232,7 +232,7 @@ func (h *LogAnalysisHandler) DeleteLogEntry(c *gin.Context) {
 
 // CreateAnalysisRule 创建分析规则
 func (h *LogAnalysisHandler) CreateAnalysisRule(c *gin.Context) {
-	userID, exists := c.Get("user_id")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
@@ -246,7 +246,7 @@ func (h *LogAnalysisHandler) CreateAnalysisRule(c *gin.Context) {
 		Conditions  *map[string]interface{} `json:"conditions"`
 		Actions     *map[string]interface{} `json:"actions"`
 		Priority    int                     `json:"priority"`
-		IsActive    bool                    `json:"is_active"`
+		IsActive    *bool                   `json:"is_active"`
 		Category    string                  `json:"category"`
 		Tags        *[]string               `json:"tags"`
 	}
@@ -273,9 +273,9 @@ func (h *LogAnalysisHandler) CreateAnalysisRule(c *gin.Context) {
 		Pattern:     req.Pattern,
 		PatternType: req.PatternType,
 		Priority:    req.Priority,
-		IsActive:    req.IsActive,
+		IsActive:    boolValueOrDefault(req.IsActive, true),
 		Category:    req.Category,
-		CreatedBy:   userID.(uint),
+		CreatedBy:   userID,
 	}
 
 	// 处理条件
@@ -542,7 +542,7 @@ func (h *LogAnalysisHandler) AcknowledgeAlert(c *gin.Context) {
 		return
 	}
 
-	userID, ok := validateUserAuth(c)
+	userID, ok := validateUserAuthString(c)
 	if !ok {
 		return
 	}
@@ -563,7 +563,7 @@ func (h *LogAnalysisHandler) ResolveAlert(c *gin.Context) {
 		return
 	}
 
-	userID, ok := validateUserAuth(c)
+	userID, ok := validateUserAuthString(c)
 	if !ok {
 		return
 	}
@@ -579,7 +579,7 @@ func (h *LogAnalysisHandler) ResolveAlert(c *gin.Context) {
 
 // CreateLogFilter 创建日志过滤器
 func (h *LogAnalysisHandler) CreateLogFilter(c *gin.Context) {
-	userID, exists := c.Get("user_id")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
@@ -605,7 +605,7 @@ func (h *LogAnalysisHandler) CreateLogFilter(c *gin.Context) {
 		Filters:     string(filtersJSON),
 		IsPublic:    req.IsPublic,
 		IsDefault:   req.IsDefault,
-		CreatedBy:   userID.(uint),
+		CreatedBy:   userID,
 	}
 
 	err := h.service.CreateLogFilter(filter)
@@ -624,7 +624,7 @@ func (h *LogAnalysisHandler) CreateLogFilter(c *gin.Context) {
 
 // GetLogFilters 获取日志过滤器列表
 func (h *LogAnalysisHandler) GetLogFilters(c *gin.Context) {
-	userID, exists := c.Get("user_id")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
@@ -632,7 +632,7 @@ func (h *LogAnalysisHandler) GetLogFilters(c *gin.Context) {
 
 	isPublic := c.Query("public") == "true"
 
-	filters, err := h.service.GetLogFilters(userID.(uint), isPublic)
+	filters, err := h.service.GetLogFilters(userID, isPublic)
 	if err != nil {
 		handleAppError(c, err)
 		return
@@ -660,7 +660,7 @@ func (h *LogAnalysisHandler) UpdateLogFilter(c *gin.Context) {
 		updates["filters"] = string(filtersJSON)
 	}
 
-	userID, ok := validateUserAuth(c)
+	userID, ok := validateUserAuthString(c)
 	if !ok {
 		return
 	}
@@ -682,13 +682,13 @@ func (h *LogAnalysisHandler) DeleteLogFilter(c *gin.Context) {
 		return
 	}
 
-	userID, exists := c.Get("user_id")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	err = h.service.DeleteLogFilter(uint(id), userID.(uint))
+	err = h.service.DeleteLogFilter(uint(id), userID)
 	if err != nil {
 		handleAppError(c, err)
 		return
@@ -699,7 +699,7 @@ func (h *LogAnalysisHandler) DeleteLogFilter(c *gin.Context) {
 
 // CreateLogExport 创建日志导出任务
 func (h *LogAnalysisHandler) CreateLogExport(c *gin.Context) {
-	userID, exists := c.Get("user_id")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
@@ -734,7 +734,7 @@ func (h *LogAnalysisHandler) CreateLogExport(c *gin.Context) {
 		Description: req.Description,
 		Filters:     string(filtersJSON),
 		Format:      req.Format,
-		CreatedBy:   userID.(uint),
+		CreatedBy:   userID,
 	}
 
 	err := h.service.CreateLogExport(export)
@@ -753,7 +753,7 @@ func (h *LogAnalysisHandler) CreateLogExport(c *gin.Context) {
 
 // GetLogExports 获取日志导出任务列表
 func (h *LogAnalysisHandler) GetLogExports(c *gin.Context) {
-	userID, exists := c.Get("user_id")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
@@ -763,7 +763,7 @@ func (h *LogAnalysisHandler) GetLogExports(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 
-	exports, total, err := h.service.GetLogExports(userID.(uint), page, pageSize)
+	exports, total, err := h.service.GetLogExports(userID, page, pageSize)
 	if err != nil {
 		handleAppError(c, err)
 		return
@@ -786,13 +786,13 @@ func (h *LogAnalysisHandler) GetLogExport(c *gin.Context) {
 		return
 	}
 
-	userID, exists := c.Get("user_id")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	export, err := h.service.GetLogExportByID(uint(id), userID.(uint))
+	export, err := h.service.GetLogExportByID(uint(id), userID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			handleNotFound(c, "log export", c.Param("id"))
@@ -813,13 +813,13 @@ func (h *LogAnalysisHandler) DeleteLogExport(c *gin.Context) {
 		return
 	}
 
-	userID, exists := c.Get("user_id")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	err = h.service.DeleteLogExport(uint(id), userID.(uint))
+	err = h.service.DeleteLogExport(uint(id), userID)
 	if err != nil {
 		handleAppError(c, err)
 		return
@@ -830,7 +830,7 @@ func (h *LogAnalysisHandler) DeleteLogExport(c *gin.Context) {
 
 // CreateRetentionPolicy 创建保留策略
 func (h *LogAnalysisHandler) CreateRetentionPolicy(c *gin.Context) {
-	userID, exists := c.Get("user_id")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
@@ -843,7 +843,7 @@ func (h *LogAnalysisHandler) CreateRetentionPolicy(c *gin.Context) {
 		RetentionDays    int                    `json:"retention_days" binding:"required,min=1"`
 		ArchiveAfterDays *int                   `json:"archive_after_days"`
 		CompressionType  *string                `json:"compression_type"`
-		IsActive         bool                   `json:"is_active"`
+		IsActive         *bool                  `json:"is_active"`
 		Priority         int                    `json:"priority"`
 	}
 
@@ -860,9 +860,9 @@ func (h *LogAnalysisHandler) CreateRetentionPolicy(c *gin.Context) {
 		RetentionDays:    req.RetentionDays,
 		ArchiveAfterDays: req.ArchiveAfterDays,
 		CompressionType:  req.CompressionType,
-		IsActive:         req.IsActive,
+		IsActive:         boolValueOrDefault(req.IsActive, true),
 		Priority:         req.Priority,
-		CreatedBy:        userID.(uint),
+		CreatedBy:        userID,
 	}
 
 	err := h.service.CreateRetentionPolicy(policy)

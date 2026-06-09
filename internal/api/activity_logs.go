@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"time"
 
-	"superview/internal/models"
 	"superview/internal/services"
 	"superview/internal/validation"
 
@@ -182,26 +181,23 @@ func (a *ActivityLogsAPI) GetLogStatistics(c *gin.Context) {
 
 // CleanOldLogs 清理旧日志（管理员功能）
 func (a *ActivityLogsAPI) CleanOldLogs(c *gin.Context) {
-	user, exists := c.Get("user")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"status": "error", "message": "Unauthorized"})
-		return
-	}
-	currentUser, ok := user.(*models.User)
-	if !ok || !currentUser.IsAdmin {
-		c.JSON(http.StatusForbidden, gin.H{"status": "error", "message": "Admin access required"})
+	if _, ok := getCurrentUser(c); !ok {
 		return
 	}
 
 	validator := validation.NewValidator()
-	days, _ := strconv.Atoi(c.DefaultQuery("days", "90"))
+	daysStr := c.DefaultQuery("days", "90")
+	days, err := strconv.Atoi(daysStr)
+	if err != nil {
+		validator.AddError("days", "must be a valid number")
+	} else {
+		validator.ValidateRange("days", days, 1, 3650)
+	}
 
 	// 验证保留天数参数
 	retentionDaysStr := c.Query("retention_days")
-	var retentionDays int
 	if retentionDaysStr != "" {
-		var err error
-		retentionDays, err = strconv.Atoi(retentionDaysStr)
+		retentionDays, err := strconv.Atoi(retentionDaysStr)
 		if err != nil {
 			validator.AddError("retention_days", "must be a valid number")
 		} else {
@@ -219,7 +215,7 @@ func (a *ActivityLogsAPI) CleanOldLogs(c *gin.Context) {
 		return
 	}
 
-	err := a.service.CleanOldLogs(days)
+	err = a.service.CleanOldLogs(days)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"status":  "error",
@@ -241,14 +237,7 @@ func (a *ActivityLogsAPI) CleanOldLogs(c *gin.Context) {
 
 // DeleteLogs 按条件删除日志（管理员功能）
 func (a *ActivityLogsAPI) DeleteLogs(c *gin.Context) {
-	user, exists := c.Get("user")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"status": "error", "message": "Unauthorized"})
-		return
-	}
-	currentUser, ok := user.(*models.User)
-	if !ok || !currentUser.IsAdmin {
-		c.JSON(http.StatusForbidden, gin.H{"status": "error", "message": "Admin access required"})
+	if _, ok := getCurrentUser(c); !ok {
 		return
 	}
 

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"superview/internal/models"
 	"gorm.io/gorm"
+	"superview/internal/models"
 )
 
 // ConfigurationService 配置管理服务
@@ -24,7 +24,7 @@ func NewConfigurationService(db *gorm.DB) *ConfigurationService {
 func (s *ConfigurationService) CreateConfiguration(config *models.Configuration) error {
 	// 检查配置键是否已存在
 	var existing models.Configuration
-	err := s.db.Where("key = ? AND scope = ? AND COALESCE(node_id, 0) = COALESCE(?, 0) AND COALESCE(user_id, 0) = COALESCE(?, 0)",
+	err := s.db.Where("key = ? AND scope = ? AND COALESCE(node_id, 0) = COALESCE(?, 0) AND COALESCE(user_id, '') = COALESCE(?, '')",
 		config.Key, config.Scope, config.NodeID, config.UserID).First(&existing).Error
 	if err == nil {
 		return fmt.Errorf("configuration key already exists in this scope")
@@ -88,7 +88,7 @@ func (s *ConfigurationService) GetConfigurations(page, pageSize int, filters map
 }
 
 // GetConfigurationByID 根据ID获取配置
-func (s *ConfigurationService) GetConfigurationByID(id uint, userID uint, showSecret bool) (*models.Configuration, error) {
+func (s *ConfigurationService) GetConfigurationByID(id uint, userID string, showSecret bool) (*models.Configuration, error) {
 	var config models.Configuration
 	err := s.db.Preload("User").Preload("Updater").Preload("Node").Preload("Owner").First(&config, id).Error
 	if err != nil {
@@ -107,7 +107,7 @@ func (s *ConfigurationService) GetConfigurationByID(id uint, userID uint, showSe
 }
 
 // GetConfigurationByKey 根据键获取配置
-func (s *ConfigurationService) GetConfigurationByKey(key string, scope string, nodeID *uint, userID *uint) (*models.Configuration, error) {
+func (s *ConfigurationService) GetConfigurationByKey(key string, scope string, nodeID *uint, userID *string) (*models.Configuration, error) {
 	var config models.Configuration
 	query := s.db.Where("key = ? AND scope = ?", key, scope)
 
@@ -128,7 +128,7 @@ func (s *ConfigurationService) GetConfigurationByKey(key string, scope string, n
 }
 
 // UpdateConfiguration 更新配置
-func (s *ConfigurationService) UpdateConfiguration(id uint, updates map[string]interface{}, userID uint) error {
+func (s *ConfigurationService) UpdateConfiguration(id uint, updates map[string]interface{}, userID string) error {
 	// 获取原配置
 	var oldConfig models.Configuration
 	err := s.db.First(&oldConfig, id).Error
@@ -187,7 +187,7 @@ func (s *ConfigurationService) UpdateConfiguration(id uint, updates map[string]i
 }
 
 // DeleteConfiguration 删除配置
-func (s *ConfigurationService) DeleteConfiguration(id uint, userID uint) error {
+func (s *ConfigurationService) DeleteConfiguration(id uint, userID string) error {
 	// 获取配置信息
 	var config models.Configuration
 	err := s.db.First(&config, id).Error
@@ -236,7 +236,7 @@ func (s *ConfigurationService) CreateEnvironmentVariable(envVar *models.Environm
 	// 创建审计日志
 	s.createAuditLog("create", "environment_variable", 0, envVar.Name, nil, envVar.CreatedBy, "", "", true, nil)
 
-	return s.db.Create(envVar).Error
+	return createAndPreserveBool(s.db, envVar, "is_active", envVar.IsActive)
 }
 
 // GetEnvironmentVariables 获取环境变量列表
@@ -283,7 +283,7 @@ func (s *ConfigurationService) GetEnvironmentVariables(page, pageSize int, filte
 }
 
 // GetEnvironmentVariableByID 根据ID获取环境变量
-func (s *ConfigurationService) GetEnvironmentVariableByID(id uint, userID uint, showSecret bool) (*models.EnvironmentVariable, error) {
+func (s *ConfigurationService) GetEnvironmentVariableByID(id uint, userID string, showSecret bool) (*models.EnvironmentVariable, error) {
 	var envVar models.EnvironmentVariable
 	err := s.db.Preload("User").Preload("Updater").Preload("Node").First(&envVar, id).Error
 	if err != nil {
@@ -302,7 +302,7 @@ func (s *ConfigurationService) GetEnvironmentVariableByID(id uint, userID uint, 
 }
 
 // UpdateEnvironmentVariable 更新环境变量
-func (s *ConfigurationService) UpdateEnvironmentVariable(id uint, updates map[string]interface{}, userID uint) error {
+func (s *ConfigurationService) UpdateEnvironmentVariable(id uint, updates map[string]interface{}, userID string) error {
 	// 获取原环境变量
 	var oldEnvVar models.EnvironmentVariable
 	err := s.db.First(&oldEnvVar, id).Error
@@ -344,7 +344,7 @@ func (s *ConfigurationService) UpdateEnvironmentVariable(id uint, updates map[st
 }
 
 // DeleteEnvironmentVariable 删除环境变量
-func (s *ConfigurationService) DeleteEnvironmentVariable(id uint, userID uint) error {
+func (s *ConfigurationService) DeleteEnvironmentVariable(id uint, userID string) error {
 	// 获取环境变量信息
 	var envVar models.EnvironmentVariable
 	err := s.db.First(&envVar, id).Error
@@ -444,7 +444,7 @@ func (s *ConfigurationService) GetBackups(page, pageSize int, filters map[string
 }
 
 // GetBackupByID 根据ID获取备份
-func (s *ConfigurationService) GetBackupByID(id uint, userID uint) (*models.ConfigurationBackup, error) {
+func (s *ConfigurationService) GetBackupByID(id uint, userID string) (*models.ConfigurationBackup, error) {
 	var backup models.ConfigurationBackup
 	err := s.db.Preload("User").Preload("Node").Preload("Owner").First(&backup, id).Error
 	if err != nil {
@@ -458,7 +458,7 @@ func (s *ConfigurationService) GetBackupByID(id uint, userID uint) (*models.Conf
 }
 
 // RestoreBackup 恢复备份
-func (s *ConfigurationService) RestoreBackup(id uint, userID uint, options map[string]interface{}) error {
+func (s *ConfigurationService) RestoreBackup(id uint, userID string, options map[string]interface{}) error {
 	// 获取备份
 	var backup models.ConfigurationBackup
 	err := s.db.First(&backup, id).Error
@@ -497,7 +497,7 @@ func (s *ConfigurationService) RestoreBackup(id uint, userID uint, options map[s
 
 			// 检查是否已存在，如果存在则更新，否则创建
 			var existing models.Configuration
-			existErr := tx.Where("key = ? AND scope = ? AND COALESCE(node_id, 0) = COALESCE(?, 0) AND COALESCE(user_id, 0) = COALESCE(?, 0)",
+			existErr := tx.Where("key = ? AND scope = ? AND COALESCE(node_id, 0) = COALESCE(?, 0) AND COALESCE(user_id, '') = COALESCE(?, '')",
 				config.Key, config.Scope, config.NodeID, config.UserID).First(&existing).Error
 			if existErr == nil {
 				// 更新现有配置
@@ -574,7 +574,7 @@ func (s *ConfigurationService) RestoreBackup(id uint, userID uint, options map[s
 }
 
 // DeleteBackup 删除备份
-func (s *ConfigurationService) DeleteBackup(id uint, userID uint) error {
+func (s *ConfigurationService) DeleteBackup(id uint, userID string) error {
 	// 获取备份信息
 	var backup models.ConfigurationBackup
 	err := s.db.First(&backup, id).Error
@@ -589,7 +589,7 @@ func (s *ConfigurationService) DeleteBackup(id uint, userID uint) error {
 }
 
 // ExportConfigurations 导出配置
-func (s *ConfigurationService) ExportConfigurations(filters map[string]interface{}, userID uint) (map[string]interface{}, error) {
+func (s *ConfigurationService) ExportConfigurations(filters map[string]interface{}, userID string) (map[string]interface{}, error) {
 	data := make(map[string]interface{})
 
 	// 导出配置
@@ -636,7 +636,7 @@ func (s *ConfigurationService) ExportConfigurations(filters map[string]interface
 }
 
 // ImportConfigurations 导入配置
-func (s *ConfigurationService) ImportConfigurations(data map[string]interface{}, userID uint, options map[string]interface{}) error {
+func (s *ConfigurationService) ImportConfigurations(data map[string]interface{}, userID string, options map[string]interface{}) error {
 	// 开始事务
 	tx := s.db.Begin()
 	defer func() {
@@ -667,7 +667,7 @@ func (s *ConfigurationService) ImportConfigurations(data map[string]interface{},
 
 			// 检查是否已存在
 			var existing models.Configuration
-			existErr := tx.Where("key = ? AND scope = ? AND COALESCE(node_id, 0) = COALESCE(?, 0) AND COALESCE(user_id, 0) = COALESCE(?, 0)",
+			existErr := tx.Where("key = ? AND scope = ? AND COALESCE(node_id, 0) = COALESCE(?, 0) AND COALESCE(user_id, '') = COALESCE(?, '')",
 				config.Key, config.Scope, config.NodeID, config.UserID).First(&existing).Error
 			if existErr == nil {
 				if overwriteExisting {
@@ -831,7 +831,7 @@ func (s *ConfigurationService) InitializeSystemConfigurations() error {
 			Scope:        models.ConfigScopeGlobal,
 			IsRequired:   true,
 			Order:        1,
-			CreatedBy:    1, // 系统用户
+			CreatedBy:    "system",
 		},
 		{
 			Key:          "system.version",
@@ -844,7 +844,7 @@ func (s *ConfigurationService) InitializeSystemConfigurations() error {
 			IsRequired:   true,
 			IsReadonly:   true,
 			Order:        2,
-			CreatedBy:    1,
+			CreatedBy:    "system",
 		},
 		{
 			Key:          "auth.session_timeout",
@@ -856,7 +856,7 @@ func (s *ConfigurationService) InitializeSystemConfigurations() error {
 			Scope:        models.ConfigScopeGlobal,
 			IsRequired:   true,
 			Order:        1,
-			CreatedBy:    1,
+			CreatedBy:    "system",
 		},
 		{
 			Key:          "logging.level",
@@ -868,7 +868,7 @@ func (s *ConfigurationService) InitializeSystemConfigurations() error {
 			Scope:        models.ConfigScopeGlobal,
 			IsRequired:   true,
 			Order:        1,
-			CreatedBy:    1,
+			CreatedBy:    "system",
 		},
 	}
 
@@ -886,7 +886,7 @@ func (s *ConfigurationService) InitializeSystemConfigurations() error {
 }
 
 // createConfigHistory 创建配置变更历史记录
-func (s *ConfigurationService) createConfigHistory(configID *uint, envVarID *uint, changeType, fieldName string, oldValue, newValue interface{}, userID uint) {
+func (s *ConfigurationService) createConfigHistory(configID *uint, envVarID *uint, changeType, fieldName string, oldValue, newValue interface{}, userID string) {
 	history := &models.ConfigurationHistory{
 		ConfigID:   configID,
 		EnvVarID:   envVarID,
@@ -908,7 +908,7 @@ func (s *ConfigurationService) createConfigHistory(configID *uint, envVarID *uin
 }
 
 // createAuditLog 创建审计日志
-func (s *ConfigurationService) createAuditLog(action, resourceType string, resourceID uint, resourceName string, details interface{}, userID uint, ipAddress, userAgent string, success bool, errorMsg *string) {
+func (s *ConfigurationService) createAuditLog(action, resourceType string, resourceID uint, resourceName string, details interface{}, userID string, ipAddress, userAgent string, success bool, errorMsg *string) {
 	audit := &models.ConfigurationAudit{
 		Action:       action,
 		ResourceType: resourceType,

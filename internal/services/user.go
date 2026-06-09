@@ -1,11 +1,11 @@
 package services
 
 import (
+	"golang.org/x/crypto/bcrypt"
 	"superview/internal/errors"
 	"superview/internal/logger"
 	"superview/internal/models"
 	"superview/internal/repository"
-	"golang.org/x/crypto/bcrypt"
 	"time"
 
 	"go.uber.org/zap"
@@ -28,7 +28,7 @@ func (s *UserService) CreateUser(user *models.User) error {
 	if exists {
 		return errors.NewConflictError("user", "username already exists")
 	}
-	
+
 	// 验证邮箱是否已存在
 	if user.Email != "" {
 		exists, err = s.repo.User.ExistsByEmail(user.Email)
@@ -39,11 +39,10 @@ func (s *UserService) CreateUser(user *models.User) error {
 			return errors.NewConflictError("user", "email already exists")
 		}
 	}
-	
+
 	// 设置默认值
 	user.IsActive = true
-	user.IsAdmin = false
-	
+
 	return s.repo.User.Create(user)
 }
 
@@ -52,17 +51,17 @@ func (s *UserService) Authenticate(username, password string) (*models.User, err
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// 检查用户是否激活
 	if !user.IsActive {
 		return nil, errors.NewUnauthorizedError("user account is disabled")
 	}
-	
+
 	// 验证密码
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
 		return nil, errors.NewUnauthorizedError("invalid credentials")
 	}
-	
+
 	// 更新最后登录时间
 	now := time.Now()
 	user.LastLogin = &now
@@ -72,7 +71,7 @@ func (s *UserService) Authenticate(username, password string) (*models.User, err
 			zap.String("username", user.Username),
 			zap.Error(err))
 	}
-	
+
 	return user, nil
 }
 
@@ -94,7 +93,7 @@ func (s *UserService) UpdateUser(user *models.User) error {
 		if err != nil {
 			return err
 		}
-		
+
 		if existingUser.Username != user.Username {
 			exists, err := s.repo.User.ExistsByUsername(user.Username)
 			if err != nil {
@@ -105,14 +104,14 @@ func (s *UserService) UpdateUser(user *models.User) error {
 			}
 		}
 	}
-	
+
 	// 如果更新邮箱，检查是否已存在
 	if user.Email != "" {
 		existingUser, err := s.repo.User.GetByID(user.ID)
 		if err != nil {
 			return err
 		}
-		
+
 		if existingUser.Email != user.Email {
 			exists, err := s.repo.User.ExistsByEmail(user.Email)
 			if err != nil {
@@ -123,7 +122,7 @@ func (s *UserService) UpdateUser(user *models.User) error {
 			}
 		}
 	}
-	
+
 	return s.repo.User.Update(user)
 }
 
@@ -134,7 +133,7 @@ func (s *UserService) DeleteUser(id string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	return s.repo.User.Delete(id)
 }
 
@@ -146,7 +145,7 @@ func (s *UserService) ListUsers(page, pageSize int) ([]*models.User, int64, erro
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
-	
+
 	offset := (page - 1) * pageSize
 	return s.repo.User.List(offset, pageSize)
 }
@@ -157,18 +156,18 @@ func (s *UserService) ChangePassword(userID, oldPassword, newPassword string) er
 	if err != nil {
 		return err
 	}
-	
+
 	// 验证旧密码
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(oldPassword)); err != nil {
 		return errors.NewUnauthorizedError("invalid old password")
 	}
-	
+
 	// 加密新密码
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return errors.NewInternalError("failed to hash password", err)
 	}
-	
+
 	user.Password = string(hashedPassword)
 	return s.repo.User.Update(user)
 }
@@ -179,7 +178,7 @@ func (s *UserService) ActivateUser(userID string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	user.IsActive = true
 	return s.repo.User.Update(user)
 }
@@ -190,7 +189,7 @@ func (s *UserService) DeactivateUser(userID string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	user.IsActive = false
 	return s.repo.User.Update(user)
 }
@@ -201,7 +200,7 @@ func (s *UserService) PromoteToAdmin(userID string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	user.IsAdmin = true
 	return s.repo.User.Update(user)
 }
@@ -212,7 +211,7 @@ func (s *UserService) DemoteFromAdmin(userID string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	user.IsAdmin = false
 	return s.repo.User.Update(user)
 }

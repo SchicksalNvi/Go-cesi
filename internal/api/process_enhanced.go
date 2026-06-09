@@ -10,6 +10,7 @@ import (
 	"superview/internal/services"
 
 	"github.com/gin-gonic/gin"
+	"github.com/robfig/cron/v3"
 	"gorm.io/gorm"
 )
 
@@ -60,7 +61,7 @@ func (h *ProcessEnhancedHandler) StopScheduler(c *gin.Context) {
 // CreateProcessGroup 创建进程分组
 func (h *ProcessEnhancedHandler) CreateProcessGroup(c *gin.Context) {
 	// 权限检查
-	userID, exists := c.Get("user_id")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
@@ -70,7 +71,7 @@ func (h *ProcessEnhancedHandler) CreateProcessGroup(c *gin.Context) {
 		Name        string `json:"name" binding:"required"`
 		Description string `json:"description"`
 		Priority    int    `json:"priority"`
-		Enabled     bool   `json:"enabled"`
+		Enabled     *bool  `json:"enabled"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -82,8 +83,8 @@ func (h *ProcessEnhancedHandler) CreateProcessGroup(c *gin.Context) {
 		Name:        req.Name,
 		Description: req.Description,
 		Priority:    req.Priority,
-		Enabled:     req.Enabled,
-		CreatedBy:   userID.(uint),
+		Enabled:     boolValueOrDefault(req.Enabled, true),
+		CreatedBy:   userID,
 	}
 
 	err := h.service.CreateProcessGroup(group)
@@ -112,9 +113,7 @@ func (h *ProcessEnhancedHandler) GetProcessGroups(c *gin.Context) {
 		filters["enabled"] = enabled == "true"
 	}
 	if createdBy := c.Query("created_by"); createdBy != "" {
-		if id, err := strconv.ParseUint(createdBy, 10, 32); err == nil {
-			filters["created_by"] = uint(id)
-		}
+		filters["created_by"] = createdBy
 	}
 	if search := c.Query("search"); search != "" {
 		filters["search"] = search
@@ -286,7 +285,7 @@ func (h *ProcessEnhancedHandler) ReorderProcessesInGroup(c *gin.Context) {
 
 // CreateProcessDependency 创建进程依赖
 func (h *ProcessEnhancedHandler) CreateProcessDependency(c *gin.Context) {
-	_, exists := c.Get("user_id")
+	_, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
@@ -416,7 +415,7 @@ func (h *ProcessEnhancedHandler) GetStartupOrder(c *gin.Context) {
 
 // CreateScheduledTask 创建定时任务
 func (h *ProcessEnhancedHandler) CreateScheduledTask(c *gin.Context) {
-	userID, exists := c.Get("user_id")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
@@ -430,11 +429,15 @@ func (h *ProcessEnhancedHandler) CreateScheduledTask(c *gin.Context) {
 		TargetType  string  `json:"target_type" binding:"required"`
 		TargetID    string  `json:"target_id" binding:"required"`
 		Command     *string `json:"command"`
-		Enabled     bool    `json:"enabled"`
+		Enabled     *bool   `json:"enabled"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if _, err := cron.ParseStandard(req.CronExpr); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid cron expression"})
 		return
 	}
 
@@ -446,8 +449,8 @@ func (h *ProcessEnhancedHandler) CreateScheduledTask(c *gin.Context) {
 		TargetType:  req.TargetType,
 		TargetID:    req.TargetID,
 		Command:     req.Command,
-		Enabled:     req.Enabled,
-		CreatedBy:   userID.(uint),
+		Enabled:     boolValueOrDefault(req.Enabled, true),
+		CreatedBy:   userID,
 	}
 
 	err := h.service.CreateScheduledTask(task)
@@ -482,9 +485,7 @@ func (h *ProcessEnhancedHandler) GetScheduledTasks(c *gin.Context) {
 		filters["target_type"] = targetType
 	}
 	if createdBy := c.Query("created_by"); createdBy != "" {
-		if id, err := strconv.ParseUint(createdBy, 10, 32); err == nil {
-			filters["created_by"] = uint(id)
-		}
+		filters["created_by"] = createdBy
 	}
 	if search := c.Query("search"); search != "" {
 		filters["search"] = search
@@ -538,6 +539,17 @@ func (h *ProcessEnhancedHandler) UpdateScheduledTask(c *gin.Context) {
 	if err := c.ShouldBindJSON(&updates); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+	if cronExpr, exists := updates["cron_expr"]; exists {
+		cronExprStr, ok := cronExpr.(string)
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid cron expression"})
+			return
+		}
+		if _, err := cron.ParseStandard(cronExprStr); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid cron expression"})
+			return
+		}
 	}
 
 	// 添加更新时间
@@ -603,7 +615,7 @@ func (h *ProcessEnhancedHandler) GetTaskExecutions(c *gin.Context) {
 
 // CreateProcessTemplate 创建进程模板
 func (h *ProcessEnhancedHandler) CreateProcessTemplate(c *gin.Context) {
-	userID, exists := c.Get("user_id")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
@@ -628,7 +640,7 @@ func (h *ProcessEnhancedHandler) CreateProcessTemplate(c *gin.Context) {
 		Category:    req.Category,
 		Config:      req.Config,
 		IsPublic:    req.IsPublic,
-		CreatedBy:   userID.(uint),
+		CreatedBy:   userID,
 	}
 
 	err := h.service.CreateProcessTemplate(template)
@@ -660,9 +672,7 @@ func (h *ProcessEnhancedHandler) GetProcessTemplates(c *gin.Context) {
 		filters["is_public"] = isPublic == "true"
 	}
 	if createdBy := c.Query("created_by"); createdBy != "" {
-		if id, err := strconv.ParseUint(createdBy, 10, 32); err == nil {
-			filters["created_by"] = uint(id)
-		}
+		filters["created_by"] = createdBy
 	}
 	if search := c.Query("search"); search != "" {
 		filters["search"] = search
@@ -770,7 +780,7 @@ func (h *ProcessEnhancedHandler) UseTemplate(c *gin.Context) {
 
 // CreateProcessBackup 创建进程配置备份
 func (h *ProcessEnhancedHandler) CreateProcessBackup(c *gin.Context) {
-	userID, exists := c.Get("user_id")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
@@ -793,7 +803,7 @@ func (h *ProcessEnhancedHandler) CreateProcessBackup(c *gin.Context) {
 		NodeID:      req.NodeID,
 		Config:      req.Config,
 		Comment:     req.Comment,
-		CreatedBy:   userID.(uint),
+		CreatedBy:   userID,
 	}
 
 	err := h.service.CreateProcessBackup(backup)

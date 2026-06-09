@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"superview/internal/errors"
+	"superview/internal/models"
 	"superview/internal/services"
 	"superview/internal/utils"
 
@@ -27,6 +28,20 @@ func NewDiscoveryAPI(service *services.DiscoveryService, activityLogService *ser
 	}
 }
 
+func (api *DiscoveryAPI) authorizeDiscoveryAccess(c *gin.Context) (*models.User, bool) {
+	user, ok := getCurrentUser(c)
+	if !ok {
+		return nil, false
+	}
+
+	if user.IsSuperAdmin() || user.HasPermission(models.PermissionSystemManage) {
+		return user, true
+	}
+
+	handleForbidden(c, "Discovery access is forbidden")
+	return nil, false
+}
+
 // StartDiscoveryRequest represents the request body for starting a discovery task.
 type StartDiscoveryRequest struct {
 	CIDR           string `json:"cidr" binding:"required"`
@@ -41,6 +56,10 @@ type StartDiscoveryRequest struct {
 // Creates a new discovery task and starts scanning.
 // Requirements: 2.1, 8.1, 8.4
 func (api *DiscoveryAPI) StartDiscovery(c *gin.Context) {
+	if _, ok := api.authorizeDiscoveryAccess(c); !ok {
+		return
+	}
+
 	var req StartDiscoveryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		handleBadRequest(c, err)
@@ -92,6 +111,10 @@ func (api *DiscoveryAPI) StartDiscovery(c *gin.Context) {
 // Returns paginated list of discovery tasks.
 // Requirements: 7.3
 func (api *DiscoveryAPI) ListTasks(c *gin.Context) {
+	if _, ok := api.authorizeDiscoveryAccess(c); !ok {
+		return
+	}
+
 	// Parse pagination parameters
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
@@ -126,6 +149,10 @@ func (api *DiscoveryAPI) ListTasks(c *gin.Context) {
 // Returns task details with results.
 // Requirements: 7.1, 7.2
 func (api *DiscoveryAPI) GetTask(c *gin.Context) {
+	if _, ok := api.authorizeDiscoveryAccess(c); !ok {
+		return
+	}
+
 	taskID, ok := parseAndValidateID(c, "id", "task")
 	if !ok {
 		return
@@ -155,6 +182,10 @@ func (api *DiscoveryAPI) GetTask(c *gin.Context) {
 // Cancels a running discovery task.
 // Requirements: 2.4, 8.3
 func (api *DiscoveryAPI) CancelTask(c *gin.Context) {
+	if _, ok := api.authorizeDiscoveryAccess(c); !ok {
+		return
+	}
+
 	taskID, ok := parseAndValidateID(c, "id", "task")
 	if !ok {
 		return
@@ -190,6 +221,10 @@ func (api *DiscoveryAPI) CancelTask(c *gin.Context) {
 // Deletes a discovery task and its results.
 // Only terminal tasks (completed, cancelled, failed) can be deleted.
 func (api *DiscoveryAPI) DeleteTask(c *gin.Context) {
+	if _, ok := api.authorizeDiscoveryAccess(c); !ok {
+		return
+	}
+
 	taskID, ok := parseAndValidateID(c, "id", "task")
 	if !ok {
 		return
@@ -225,6 +260,10 @@ func (api *DiscoveryAPI) DeleteTask(c *gin.Context) {
 // This is a polling endpoint for clients that cannot use WebSocket.
 // Requirements: 6.4
 func (api *DiscoveryAPI) GetTaskProgress(c *gin.Context) {
+	if _, ok := api.authorizeDiscoveryAccess(c); !ok {
+		return
+	}
+
 	taskID, ok := parseAndValidateID(c, "id", "task")
 	if !ok {
 		return
@@ -255,6 +294,10 @@ func (api *DiscoveryAPI) GetTaskProgress(c *gin.Context) {
 // This is a helper endpoint for frontend validation.
 // Requirements: 1.1, 1.2, 1.3
 func (api *DiscoveryAPI) ValidateCIDR(c *gin.Context) {
+	if _, ok := api.authorizeDiscoveryAccess(c); !ok {
+		return
+	}
+
 	var req struct {
 		CIDR string `json:"cidr" binding:"required"`
 	}

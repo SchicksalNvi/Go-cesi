@@ -2,7 +2,6 @@ package api
 
 import (
 	"net/http"
-	"strconv"
 	"time"
 
 	"superview/internal/logger"
@@ -28,6 +27,14 @@ type SetTemporaryLogLevelRequest struct {
 
 func NewLogManagementAPI() *LogManagementAPI {
 	return &LogManagementAPI{}
+}
+
+func logLevelChangedBy(c *gin.Context) string {
+	userID, exists := getUserIDString(c)
+	if !exists || userID == "" {
+		return "unknown"
+	}
+	return "user_" + userID
 }
 
 // GetLogLevel 获取当前日志级别
@@ -64,11 +71,7 @@ func (api *LogManagementAPI) SetLogLevel(c *gin.Context) {
 	}
 
 	// 获取用户信息
-	userID, exists := c.Get("user_id")
-	changedBy := "unknown"
-	if exists {
-		changedBy = "user_" + strconv.Itoa(int(userID.(uint)))
-	}
+	changedBy := logLevelChangedBy(c)
 	if req.ChangedBy != "" {
 		changedBy = req.ChangedBy
 	}
@@ -120,11 +123,7 @@ func (api *LogManagementAPI) SetTemporaryLogLevel(c *gin.Context) {
 	}
 
 	// 获取用户信息
-	userID, exists := c.Get("user_id")
-	changedBy := "unknown"
-	if exists {
-		changedBy = "user_" + strconv.Itoa(int(userID.(uint)))
-	}
+	changedBy := logLevelChangedBy(c)
 	if req.ChangedBy != "" {
 		changedBy = req.ChangedBy
 	}
@@ -157,11 +156,7 @@ func (api *LogManagementAPI) SetTemporaryLogLevel(c *gin.Context) {
 // ResetLogLevel 重置日志级别到默认值
 func (api *LogManagementAPI) ResetLogLevel(c *gin.Context) {
 	// 获取用户信息
-	userID, exists := c.Get("user_id")
-	changedBy := "unknown"
-	if exists {
-		changedBy = "user_" + strconv.Itoa(int(userID.(uint)))
-	}
+	changedBy := logLevelChangedBy(c)
 
 	// 重置日志级别
 	if err := logger.ResetLogLevel(changedBy); err != nil {
@@ -195,11 +190,7 @@ func (api *LogManagementAPI) GetAvailableLogLevels(c *gin.Context) {
 // ClearLogLevelHistory 清空日志级别变更历史
 func (api *LogManagementAPI) ClearLogLevelHistory(c *gin.Context) {
 	// 获取用户信息
-	userID, exists := c.Get("user_id")
-	changedBy := "unknown"
-	if exists {
-		changedBy = "user_" + strconv.Itoa(int(userID.(uint)))
-	}
+	changedBy := logLevelChangedBy(c)
 
 	logger.ClearLevelHistory(changedBy)
 

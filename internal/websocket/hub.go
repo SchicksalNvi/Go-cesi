@@ -13,16 +13,16 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
+	"golang.org/x/time/rate"
 	"superview/internal/config"
 	"superview/internal/logger"
 	"superview/internal/supervisor"
-	"go.uber.org/zap"
-	"golang.org/x/time/rate"
 )
 
 // WebSocketConfig WebSocket配置
 type WebSocketConfig struct {
-	MaxConnections     int           // 最大连接数
+	MaxConnections    int           // 最大连接数
 	RateLimit         float64       // 每秒消息限制
 	RateBurst         int           // 突发消息数量
 	HeartbeatInterval time.Duration // 心跳间隔
@@ -45,14 +45,14 @@ func SetAllowedOrigins(origins []string) {
 func GetDefaultWebSocketConfig() *WebSocketConfig {
 	// 优先级：config.toml > 环境变量 > 默认值
 	allowedOrigins := globalAllowedOrigins
-	
+
 	// 如果配置文件未设置，尝试环境变量
 	if len(allowedOrigins) == 0 {
 		if origins := os.Getenv("WEBSOCKET_ALLOWED_ORIGINS"); origins != "" {
 			allowedOrigins = strings.Split(origins, ",")
 		}
 	}
-	
+
 	// 如果都未设置，使用默认值
 	if len(allowedOrigins) == 0 {
 		allowedOrigins = []string{
@@ -64,15 +64,15 @@ func GetDefaultWebSocketConfig() *WebSocketConfig {
 	}
 
 	return &WebSocketConfig{
-		MaxConnections:     500,              // Support up to 500 connections by default
+		MaxConnections:    500,              // Support up to 500 connections by default
 		RateLimit:         10.0,             // 每秒10条消息
 		RateBurst:         20,               // 突发20条消息
 		HeartbeatInterval: 30 * time.Second, // 30秒心跳
 		ReadTimeout:       60 * time.Second, // 60秒读取超时
 		WriteTimeout:      10 * time.Second, // 10秒写入超时
 		AllowedOrigins:    allowedOrigins,
-		MaxMessageSize:    1024,             // 1KB最大消息大小
-		MaxViolations:     5,                // 最大5次违规
+		MaxMessageSize:    1024, // 1KB最大消息大小
+		MaxViolations:     5,    // 最大5次违规
 	}
 }
 
@@ -97,56 +97,56 @@ var upgrader = websocket.Upgrader{
 // GetWebSocketConfigFromPerformance creates WebSocket config from performance config
 func GetWebSocketConfigFromPerformance(perfConfig *config.PerformanceConfig) *WebSocketConfig {
 	wsConfig := GetDefaultWebSocketConfig()
-	
+
 	// Override with performance config values if set
 	if perfConfig.MaxWebSocketConnections > 0 {
 		wsConfig.MaxConnections = perfConfig.MaxWebSocketConnections
 	}
-	
+
 	return wsConfig
 }
 
 type Hub struct {
-	clients       map[*Client]bool
-	clientsMu     sync.RWMutex
-	
-	broadcast     chan []byte
-	register      chan *Client
-	unregister    chan *Client
-	cleanup       chan *Client  // New: separate cleanup channel
-	
-	service       *supervisor.SupervisorService
-	config        *WebSocketConfig
-	
+	clients   map[*Client]bool
+	clientsMu sync.RWMutex
+
+	broadcast  chan []byte
+	register   chan *Client
+	unregister chan *Client
+	cleanup    chan *Client // New: separate cleanup channel
+
+	service *supervisor.SupervisorService
+	config  *WebSocketConfig
+
 	connectionCount int64 // atomic
-	
-	ctx           context.Context
-	cancel        context.CancelFunc
-	wg            sync.WaitGroup  // New: for graceful shutdown
-	closeOnce     sync.Once       // Ensure Close is called only once
-	
+
+	ctx       context.Context
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup // New: for graceful shutdown
+	closeOnce sync.Once      // Ensure Close is called only once
+
 	// Refresh interval management
 	refreshInterval time.Duration
 	refreshMu       sync.RWMutex
 	refreshStop     chan struct{}
 	refreshWg       sync.WaitGroup
-	
+
 	// Log streaming offsets - shared across goroutines
-	logOffsets    map[string]int
-	logOffsetsMu  sync.RWMutex
+	logOffsets   map[string]int
+	logOffsetsMu sync.RWMutex
 }
 
 type Client struct {
-	hub        *Hub
-	conn       *websocket.Conn
-	send       chan []byte
-	userID     string
-	subscribed sync.Map        // map[string]bool - thread-safe
-	limiter    *rate.Limiter   // 速率限制器
-	lastPong   time.Time       // 最后一次pong时间
-	mu         sync.RWMutex
-	violationCount int          // 违规计数
-	closed     bool            // 连接是否已关闭
+	hub            *Hub
+	conn           *websocket.Conn
+	send           chan []byte
+	userID         string
+	subscribed     sync.Map      // map[string]bool - thread-safe
+	limiter        *rate.Limiter // 速率限制器
+	lastPong       time.Time     // 最后一次pong时间
+	mu             sync.RWMutex
+	violationCount int  // 违规计数
+	closed         bool // 连接是否已关闭
 }
 
 type Message struct {
@@ -168,11 +168,11 @@ type ProcessStatusMessage struct {
 }
 
 type LogStreamMessage struct {
-	NodeName    string                   `json:"node_name"`
-	ProcessName string                   `json:"process_name"`
-	LogType     string                   `json:"log_type"`
-	Entries     []supervisor.LogEntry    `json:"entries"`
-	Timestamp   time.Time                `json:"timestamp"`
+	NodeName    string                `json:"node_name"`
+	ProcessName string                `json:"process_name"`
+	LogType     string                `json:"log_type"`
+	Entries     []supervisor.LogEntry `json:"entries"`
+	Timestamp   time.Time             `json:"timestamp"`
 }
 
 // LogEntry represents a single log entry
@@ -189,7 +189,7 @@ type SystemStatsMessage struct {
 
 func NewHub(service *supervisor.SupervisorService) *Hub {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	hub := &Hub{
 		clients:         make(map[*Client]bool),
 		broadcast:       make(chan []byte, 256),
@@ -204,7 +204,7 @@ func NewHub(service *supervisor.SupervisorService) *Hub {
 		refreshStop:     make(chan struct{}),
 		logOffsets:      make(map[string]int),
 	}
-	
+
 	// Pre-add WaitGroup count for background goroutines
 	hub.wg.Add(3) // heartbeat, cleanup, log streaming
 	return hub
@@ -213,7 +213,7 @@ func NewHub(service *supervisor.SupervisorService) *Hub {
 // NewHubWithConfig 使用自定义配置创建Hub
 func NewHubWithConfig(service *supervisor.SupervisorService, config *WebSocketConfig) *Hub {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	hub := &Hub{
 		clients:         make(map[*Client]bool),
 		broadcast:       make(chan []byte, 256),
@@ -228,7 +228,7 @@ func NewHubWithConfig(service *supervisor.SupervisorService, config *WebSocketCo
 		refreshStop:     make(chan struct{}),
 		logOffsets:      make(map[string]int),
 	}
-	
+
 	// Pre-add WaitGroup count for background goroutines
 	hub.wg.Add(3) // heartbeat, cleanup, log streaming
 	return hub
@@ -246,7 +246,7 @@ func (h *Hub) Close() {
 			h.refreshWg.Wait()
 			close(done)
 		}()
-		
+
 		select {
 		case <-done:
 			logger.Info("Hub closed gracefully")
@@ -262,16 +262,16 @@ func (h *Hub) SetRefreshInterval(interval time.Duration) {
 	oldInterval := h.refreshInterval
 	h.refreshInterval = interval
 	h.refreshMu.Unlock()
-	
+
 	if oldInterval != interval {
 		logger.Info("WebSocket refresh interval changed, restarting periodic updates",
 			zap.Duration("old_interval", oldInterval),
 			zap.Duration("new_interval", interval))
-		
+
 		// 停止旧的定期更新
 		close(h.refreshStop)
 		h.refreshWg.Wait()
-		
+
 		// 启动新的定期更新
 		h.refreshStop = make(chan struct{})
 		h.refreshWg.Add(1)
@@ -343,7 +343,7 @@ func (h *Hub) Run() {
 			// Use collect-then-modify pattern to avoid race conditions
 			h.clientsMu.RLock()
 			clientsToRemove := make([]*Client, 0)
-			
+
 			for client := range h.clients {
 				select {
 				case client.send <- message:
@@ -354,7 +354,7 @@ func (h *Hub) Run() {
 				}
 			}
 			h.clientsMu.RUnlock()
-			
+
 			// 安全地移除阻塞的客户端
 			for _, client := range clientsToRemove {
 				select {
@@ -373,7 +373,7 @@ func (h *Hub) Run() {
 // startCleanupWorker 启动清理工作协程
 func (h *Hub) startCleanupWorker() {
 	defer h.wg.Done()
-	
+
 	for {
 		select {
 		case <-h.ctx.Done():
@@ -394,11 +394,11 @@ func (h *Hub) startCleanupWorker() {
 
 func (h *Hub) startPeriodicUpdates() {
 	defer h.refreshWg.Done()
-	
+
 	h.refreshMu.RLock()
 	interval := h.refreshInterval
 	h.refreshMu.RUnlock()
-	
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -436,26 +436,26 @@ func (h *Hub) startLogStreaming() {
 func (h *Hub) pollAndStreamLogs() {
 	// 收集所有订阅的日志流
 	subscribedLogs := h.getSubscribedLogStreams()
-	
+
 	for logKey := range subscribedLogs {
 		parts := strings.Split(logKey, ":")
 		if len(parts) != 2 {
 			continue
 		}
-		
+
 		nodeName, processName := parts[0], parts[1]
-		
+
 		// 获取节点
 		node, err := h.service.GetNode(nodeName)
 		if err != nil {
 			continue
 		}
-		
+
 		// 获取当前偏移量（使用共享的 logOffsets）
 		h.logOffsetsMu.RLock()
 		currentOffset, exists := h.logOffsets[logKey]
 		h.logOffsetsMu.RUnlock()
-		
+
 		if !exists {
 			// 首次订阅：获取当前文件大小作为起始偏移量，不发送任何日志
 			// 这样只会推送订阅之后的新日志
@@ -472,7 +472,7 @@ func (h *Hub) pollAndStreamLogs() {
 			h.logOffsetsMu.Unlock()
 			continue // 不发送任何日志，等待下次轮询
 		}
-		
+
 		// 从当前偏移量读取新日志
 		logStream, err := node.GetProcessLogStream(processName, currentOffset, 50)
 		if err != nil {
@@ -482,7 +482,7 @@ func (h *Hub) pollAndStreamLogs() {
 				zap.Error(err))
 			continue
 		}
-		
+
 		// 只有当偏移量变化时才发送（说明有新日志）
 		if logStream.LastOffset > currentOffset && len(logStream.Entries) > 0 {
 			h.SendLogStreamToSubscribedClients(nodeName, processName, logStream)
@@ -497,7 +497,7 @@ func (h *Hub) pollAndStreamLogs() {
 // getSubscribedLogStreams 获取所有订阅的日志流
 func (h *Hub) getSubscribedLogStreams() map[string]bool {
 	subscribedLogs := make(map[string]bool)
-	
+
 	h.clientsMu.RLock()
 	for client := range h.clients {
 		client.subscribed.Range(func(key, value interface{}) bool {
@@ -509,7 +509,7 @@ func (h *Hub) getSubscribedLogStreams() map[string]bool {
 		})
 	}
 	h.clientsMu.RUnlock()
-	
+
 	return subscribedLogs
 }
 
@@ -517,7 +517,7 @@ func (h *Hub) getSubscribedLogStreams() map[string]bool {
 func (h *Hub) SendLogStreamToSubscribedClients(nodeName, processName string, logStream *supervisor.LogStream) {
 	logKey := fmt.Sprintf("%s:%s", nodeName, processName)
 	subscriptionKey := "logs:" + logKey
-	
+
 	message := Message{
 		Type: "log_stream",
 		Data: LogStreamMessage{
@@ -542,7 +542,7 @@ func (h *Hub) SendLogStreamToSubscribedClients(nodeName, processName string, log
 	h.clientsMu.RLock()
 	clientsToRemove := make([]*Client, 0)
 	sentCount := 0
-	
+
 	for client := range h.clients {
 		if _, subscribed := client.subscribed.Load(subscriptionKey); subscribed {
 			select {
@@ -555,7 +555,7 @@ func (h *Hub) SendLogStreamToSubscribedClients(nodeName, processName string, log
 		}
 	}
 	h.clientsMu.RUnlock()
-	
+
 	if sentCount > 0 {
 		logger.Debug("Sent log stream to clients",
 			zap.String("node", nodeName),
@@ -563,7 +563,7 @@ func (h *Hub) SendLogStreamToSubscribedClients(nodeName, processName string, log
 			zap.Int("entries", len(logStream.Entries)),
 			zap.Int("clients", sentCount))
 	}
-	
+
 	// Remove clients with full channels via cleanup worker
 	for _, client := range clientsToRemove {
 		select {
@@ -619,7 +619,7 @@ func (h *Hub) checkHeartbeats() {
 			logger.Warn("Client heartbeat timeout, disconnecting",
 				zap.String("userID", client.userID),
 				zap.Duration("timeout", now.Sub(client.lastPong)))
-			
+
 			// 通过unregister channel安全地移除客户端
 			select {
 			case h.unregister <- client:
@@ -633,7 +633,7 @@ func (h *Hub) checkHeartbeats() {
 
 	// 发送ping消息给所有活跃客户端
 	pingMessage := map[string]interface{}{
-		"type": "ping",
+		"type":      "ping",
 		"timestamp": now.Unix(),
 	}
 
@@ -656,7 +656,7 @@ func (h *Hub) sendInitialData(client *Client) {
 	h.clientsMu.RLock()
 	_, exists := h.clients[client]
 	h.clientsMu.RUnlock()
-	
+
 	if !exists {
 		logger.Debug("Client already disconnected, skipping initial data",
 			zap.String("user_id", client.userID))
@@ -811,15 +811,13 @@ func (c *Client) handleViolation(reason string) {
 		logger.Error("Client exceeded max violations, force disconnecting",
 			zap.String("userID", c.userID),
 			zap.Int("violationCount", c.violationCount))
-		
+
 		// 异步关闭连接以避免阻塞
 		go func() {
 			c.conn.Close()
 		}()
 	}
 }
-
-
 
 func (h *Hub) HandleWebSocket(c *gin.Context) {
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
@@ -830,6 +828,9 @@ func (h *Hub) HandleWebSocket(c *gin.Context) {
 
 	// Get user ID from context (set by auth middleware)
 	userID := c.GetString("user_id")
+	if userID == "" {
+		userID = c.GetString("userID")
+	}
 	if userID == "" {
 		userID = "anonymous"
 	}

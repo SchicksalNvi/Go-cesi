@@ -67,6 +67,7 @@ release/
 node_modules/
 web/react-app/dist/
 web/react-app/node_modules/
+web/static/react/
 
 # PID files
 pids/*.pid

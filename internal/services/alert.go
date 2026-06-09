@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"superview/internal/logger"
-	"superview/internal/models"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"superview/internal/logger"
+	"superview/internal/models"
 )
 
 // AlertService 告警服务
@@ -23,7 +23,7 @@ func NewAlertService(db *gorm.DB) *AlertService {
 
 // CreateAlertRule 创建告警规则
 func (s *AlertService) CreateAlertRule(rule *models.AlertRule) error {
-	return s.db.Create(rule).Error
+	return createAndPreserveBool(s.db, rule, "enabled", rule.Enabled)
 }
 
 // GetAlertRules 获取告警规则列表
@@ -171,7 +171,7 @@ func (s *AlertService) ResolveAlert(id uint, userIDStr string) error {
 
 // CreateNotificationChannel 创建通知渠道
 func (s *AlertService) CreateNotificationChannel(channel *models.NotificationChannel) error {
-	return s.db.Create(channel).Error
+	return createAndPreserveBool(s.db, channel, "enabled", channel.Enabled)
 }
 
 // GetNotificationChannels 获取通知渠道列表

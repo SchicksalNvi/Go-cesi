@@ -21,7 +21,7 @@ import { Modal } from 'antd';
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
 import dayjs, { Dayjs } from 'dayjs';
 import { activityLogsAPI } from '../../api/activityLogs';
-import type { ActivityLog, ActivityLogsFilters, PaginationInfo } from '../../types';
+import type { ActivityLog, ActivityLogsFilters, PaginationInfo } from '../../api/activityLogs';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { useStore } from '../../store';
 

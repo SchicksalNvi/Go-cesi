@@ -14,13 +14,13 @@ type ProcessGroup struct {
 	Icon        string         `json:"icon" gorm:"size:50;default:'folder'"`
 	Priority    int            `json:"priority" gorm:"default:0"` // 启动优先级
 	Enabled     bool           `json:"enabled" gorm:"default:true"`
-	CreatedBy   uint           `json:"created_by"`
+	CreatedBy   string         `json:"created_by" gorm:"size:50;index"`
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
 	DeletedAt   gorm.DeletedAt `json:"deleted_at,omitempty" gorm:"index"`
 
 	// 关联
-	User      User               `json:"user,omitempty" gorm:"foreignKey:CreatedBy"`
+	User      User               `json:"user,omitempty" gorm:"foreignKey:CreatedBy;references:ID"`
 	Processes []ProcessGroupItem `json:"processes,omitempty" gorm:"foreignKey:GroupID"`
 }
 
@@ -66,13 +66,13 @@ type ScheduledTask struct {
 	LastRun     *time.Time     `json:"last_run,omitempty"`
 	NextRun     *time.Time     `json:"next_run,omitempty"`
 	RunCount    int            `json:"run_count" gorm:"default:0"`
-	CreatedBy   uint           `json:"created_by"`
+	CreatedBy   string         `json:"created_by" gorm:"size:50;index"`
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
 	DeletedAt   gorm.DeletedAt `json:"deleted_at,omitempty" gorm:"index"`
 
 	// 关联
-	User       User            `json:"user,omitempty" gorm:"foreignKey:CreatedBy"`
+	User       User            `json:"user,omitempty" gorm:"foreignKey:CreatedBy;references:ID"`
 	Executions []TaskExecution `json:"executions,omitempty" gorm:"foreignKey:TaskID"`
 }
 
@@ -102,13 +102,13 @@ type ProcessTemplate struct {
 	Tags        string         `json:"tags" gorm:"size:500"`    // JSON格式的标签
 	IsPublic    bool           `json:"is_public" gorm:"default:false"`
 	UsageCount  int            `json:"usage_count" gorm:"default:0"`
-	CreatedBy   uint           `json:"created_by"`
+	CreatedBy   string         `json:"created_by" gorm:"size:50;index"`
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
 	DeletedAt   gorm.DeletedAt `json:"deleted_at,omitempty" gorm:"index"`
 
 	// 关联
-	User User `json:"user,omitempty" gorm:"foreignKey:CreatedBy"`
+	User User `json:"user,omitempty" gorm:"foreignKey:CreatedBy;references:ID"`
 }
 
 // ProcessBackup 进程配置备份
@@ -119,11 +119,11 @@ type ProcessBackup struct {
 	Config      string    `json:"config" gorm:"type:text"` // JSON格式的配置备份
 	Version     int       `json:"version" gorm:"not null;default:1"`
 	Comment     string    `json:"comment" gorm:"size:500"`
-	CreatedBy   uint      `json:"created_by"`
+	CreatedBy   string    `json:"created_by" gorm:"size:50;index"`
 	CreatedAt   time.Time `json:"created_at"`
 
 	// 关联
-	User User `json:"user,omitempty" gorm:"foreignKey:CreatedBy"`
+	User User `json:"user,omitempty" gorm:"foreignKey:CreatedBy;references:ID"`
 }
 
 // ProcessMetrics 进程性能指标

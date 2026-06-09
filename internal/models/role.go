@@ -1,6 +1,7 @@
 package models
 
 import (
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"time"
 )
@@ -65,7 +66,7 @@ type RolePermission struct {
 type NodeAccess struct {
 	ID        string         `gorm:"primaryKey" json:"id"`
 	UserID    string         `gorm:"not null" json:"user_id"`
-	NodeID    string         `gorm:"not null" json:"node_id"`
+	NodeID    uint           `gorm:"not null" json:"node_id"`
 	CanRead   bool           `gorm:"default:true" json:"can_read"`
 	CanWrite  bool           `gorm:"default:false" json:"can_write"`
 	CanDelete bool           `gorm:"default:false" json:"can_delete"`
@@ -74,8 +75,16 @@ type NodeAccess struct {
 	DeletedAt gorm.DeletedAt `gorm:"index:idx_node_access_deleted_at" json:"-"`
 
 	// 关联关系
-	User User `gorm:"foreignKey:UserID" json:"user,omitempty"`
-	Node Node `gorm:"foreignKey:NodeID" json:"node,omitempty"`
+	User User `gorm:"foreignKey:UserID;references:ID" json:"user,omitempty"`
+	Node Node `gorm:"foreignKey:NodeID;references:ID" json:"node,omitempty"`
+}
+
+// BeforeCreate 为节点访问记录生成主键
+func (n *NodeAccess) BeforeCreate(tx *gorm.DB) error {
+	if n.ID == "" {
+		n.ID = uuid.New().String()
+	}
+	return nil
 }
 
 // 预定义角色常量

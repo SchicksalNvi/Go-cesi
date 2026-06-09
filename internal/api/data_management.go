@@ -136,27 +136,14 @@ func (api *DataManagementAPI) ExportData(c *gin.Context) {
 	}
 
 	// 获取当前用户ID
-	userID, exists := c.Get("user_id")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "User not authenticated"})
 		return
 	}
 
-	// 检查权限
-	user, exists := c.Get("user")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "User not found"})
-		return
-	}
-
-	currentUser := user.(*models.User)
-	if !currentUser.IsSuperAdmin() && !currentUser.HasPermission("data.export") {
-		c.JSON(http.StatusForbidden, ErrorResponse{Error: "Insufficient permissions"})
-		return
-	}
-
 	// 执行导出
-	exportRecord, err := api.dataService.ExportData(req.ExportType, req.Format, userID.(string))
+	exportRecord, err := api.dataService.ExportData(req.ExportType, req.Format, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		return
@@ -293,19 +280,6 @@ func (api *DataManagementAPI) DownloadExportFile(c *gin.Context) {
 func (api *DataManagementAPI) DeleteExportRecord(c *gin.Context) {
 	id := c.Param("id")
 
-	// 检查权限
-	user, exists := c.Get("user")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "User not found"})
-		return
-	}
-
-	currentUser := user.(*models.User)
-	if !currentUser.IsSuperAdmin() && !currentUser.HasPermission("data.delete") {
-		c.JSON(http.StatusForbidden, ErrorResponse{Error: "Insufficient permissions"})
-		return
-	}
-
 	if err := api.dataService.DeleteExportRecord(id); err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		return
@@ -339,27 +313,14 @@ func (api *DataManagementAPI) CreateBackup(c *gin.Context) {
 	}
 
 	// 获取当前用户ID
-	userID, exists := c.Get("user_id")
+	userID, exists := getUserIDString(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "User not authenticated"})
 		return
 	}
 
-	// 检查权限
-	user, exists := c.Get("user")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "User not found"})
-		return
-	}
-
-	currentUser := user.(*models.User)
-	if !currentUser.IsSuperAdmin() && !currentUser.HasPermission("data.backup") {
-		c.JSON(http.StatusForbidden, ErrorResponse{Error: "Insufficient permissions"})
-		return
-	}
-
 	// 创建备份
-	backupRecord, err := api.dataService.CreateBackup(req.BackupType, req.Name, req.Description, userID.(string))
+	backupRecord, err := api.dataService.CreateBackup(req.BackupType, req.Name, req.Description, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		return
@@ -400,19 +361,6 @@ func (api *DataManagementAPI) GetBackupRecords(c *gin.Context) {
 	}
 	page = pageNum
 	pageSize = limitNum
-
-	// 检查权限
-	user, exists := c.Get("user")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "User not found"})
-		return
-	}
-
-	currentUser := user.(*models.User)
-	if !currentUser.IsSuperAdmin() && !currentUser.HasPermission("data.backup.read") {
-		c.JSON(http.StatusForbidden, ErrorResponse{Error: "Insufficient permissions"})
-		return
-	}
 
 	records, total, err := api.dataService.GetBackupRecords(page, pageSize)
 	if err != nil {
@@ -459,19 +407,6 @@ func (api *DataManagementAPI) DownloadBackupFile(c *gin.Context) {
 		return
 	}
 
-	// 检查权限
-	user, exists := c.Get("user")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "User not found"})
-		return
-	}
-
-	currentUser := user.(*models.User)
-	if !currentUser.IsSuperAdmin() && !currentUser.HasPermission("data.backup.download") {
-		c.JSON(http.StatusForbidden, ErrorResponse{Error: "Insufficient permissions"})
-		return
-	}
-
 	// 设置下载响应头
 	fileName := filepath.Base(record.FilePath)
 	c.Header("Content-Description", "File Transfer")
@@ -494,19 +429,6 @@ func (api *DataManagementAPI) DownloadBackupFile(c *gin.Context) {
 // @Router /api/data-management/backups/{id} [delete]
 func (api *DataManagementAPI) DeleteBackupRecord(c *gin.Context) {
 	id := c.Param("id")
-
-	// 检查权限
-	user, exists := c.Get("user")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "User not found"})
-		return
-	}
-
-	currentUser := user.(*models.User)
-	if !currentUser.IsSuperAdmin() && !currentUser.HasPermission("data.backup.delete") {
-		c.JSON(http.StatusForbidden, ErrorResponse{Error: "Insufficient permissions"})
-		return
-	}
 
 	if err := api.dataService.DeleteBackupRecord(id); err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
@@ -535,19 +457,6 @@ func (api *DataManagementAPI) DeleteBackupRecord(c *gin.Context) {
 // @Failure 500 {object} ErrorResponse
 // @Router /api/data-management/import [post]
 func (api *DataManagementAPI) ImportData(c *gin.Context) {
-	// 检查权限
-	user, exists := c.Get("user")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "User not found"})
-		return
-	}
-
-	currentUser := user.(*models.User)
-	if !currentUser.IsSuperAdmin() && !currentUser.HasPermission("data.import") {
-		c.JSON(http.StatusForbidden, ErrorResponse{Error: "Insufficient permissions"})
-		return
-	}
-
 	// 获取上传文件
 	file, err := c.FormFile("file")
 	if err != nil {

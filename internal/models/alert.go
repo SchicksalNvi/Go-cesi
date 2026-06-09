@@ -26,7 +26,7 @@ type AlertRule struct {
 	DeletedAt   gorm.DeletedAt `json:"deleted_at,omitempty" gorm:"index"`
 
 	// 关联
-	User   User    `json:"user,omitempty" gorm:"foreignKey:CreatedBy"`
+	User   User    `json:"user,omitempty" gorm:"foreignKey:CreatedBy;references:ID"`
 	Alerts []Alert `json:"alerts,omitempty" gorm:"foreignKey:RuleID"`
 }
 
@@ -53,8 +53,8 @@ type Alert struct {
 
 	// 关联
 	Rule           AlertRule      `json:"rule,omitempty" gorm:"foreignKey:RuleID"`
-	AckedByUser    *User          `json:"acked_by_user,omitempty" gorm:"foreignKey:AckedBy"`
-	ResolvedByUser *User          `json:"resolved_by_user,omitempty" gorm:"foreignKey:ResolvedBy"`
+	AckedByUser    *User          `json:"acked_by_user,omitempty" gorm:"foreignKey:AckedBy;references:ID"`
+	ResolvedByUser *User          `json:"resolved_by_user,omitempty" gorm:"foreignKey:ResolvedBy;references:ID"`
 	Notifications  []Notification `json:"notifications,omitempty" gorm:"foreignKey:AlertID"`
 }
 
@@ -77,7 +77,7 @@ type NotificationChannel struct {
 	DeletedAt   gorm.DeletedAt `json:"deleted_at,omitempty" gorm:"index"`
 
 	// 关联
-	User          User           `json:"user,omitempty" gorm:"foreignKey:CreatedBy"`
+	User          User           `json:"user,omitempty" gorm:"foreignKey:CreatedBy;references:ID"`
 	Notifications []Notification `json:"notifications,omitempty" gorm:"foreignKey:ChannelID"`
 }
 

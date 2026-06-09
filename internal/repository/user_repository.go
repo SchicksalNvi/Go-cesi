@@ -3,9 +3,9 @@ package repository
 import (
 	"context"
 
+	"gorm.io/gorm"
 	"superview/internal/errors"
 	"superview/internal/models"
-	"gorm.io/gorm"
 )
 
 type userRepository struct {
@@ -50,7 +50,7 @@ func (r *userRepository) Create(user *models.User) error {
 func (r *userRepository) GetByID(id string) (*models.User, error) {
 	db := r.GetDB()
 	var user models.User
-	if err := db.Preload("Roles").Preload("NodeAccess").Where("id = ?", id).First(&user).Error; err != nil {
+	if err := db.Preload("Roles.Permissions").Preload("NodeAccess").Preload("NodeAccess.Node").Where("id = ?", id).First(&user).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, errors.NewNotFoundError("user", id)
 		}
@@ -63,7 +63,7 @@ func (r *userRepository) GetByID(id string) (*models.User, error) {
 func (r *userRepository) GetByUsername(username string) (*models.User, error) {
 	db := r.GetDB()
 	var user models.User
-	if err := db.Preload("Roles").Preload("NodeAccess").Where("username = ?", username).First(&user).Error; err != nil {
+	if err := db.Preload("Roles.Permissions").Preload("NodeAccess").Preload("NodeAccess.Node").Where("username = ?", username).First(&user).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, errors.NewNotFoundError("user", username)
 		}
@@ -76,7 +76,7 @@ func (r *userRepository) GetByUsername(username string) (*models.User, error) {
 func (r *userRepository) GetByEmail(email string) (*models.User, error) {
 	db := r.GetDB()
 	var user models.User
-	if err := db.Preload("Roles").Preload("NodeAccess").Where("email = ?", email).First(&user).Error; err != nil {
+	if err := db.Preload("Roles.Permissions").Preload("NodeAccess").Preload("NodeAccess.Node").Where("email = ?", email).First(&user).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, errors.NewNotFoundError("user", email)
 		}
@@ -115,7 +115,7 @@ func (r *userRepository) List(offset, limit int) ([]*models.User, int64, error) 
 	}
 
 	// 获取分页数据
-	if err := db.Preload("Roles").Offset(offset).Limit(limit).Find(&users).Error; err != nil {
+	if err := db.Preload("Roles.Permissions").Preload("NodeAccess").Preload("NodeAccess.Node").Offset(offset).Limit(limit).Find(&users).Error; err != nil {
 		return nil, 0, errors.NewDatabaseError("list users", err)
 	}
 

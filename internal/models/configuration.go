@@ -56,7 +56,7 @@ type Configuration struct {
 	Type         string    `json:"type" gorm:"not null;default:'string'"`
 	Scope        string    `json:"scope" gorm:"not null;default:'global'"`
 	NodeID       *uint     `json:"node_id" gorm:"index"`
-	UserID       *uint     `json:"user_id" gorm:"index"`
+	UserID       *string   `json:"user_id" gorm:"size:50;index"`
 	IsRequired   bool      `json:"is_required" gorm:"default:false"`
 	IsReadonly   bool      `json:"is_readonly" gorm:"default:false"`
 	IsSecret     bool      `json:"is_secret" gorm:"default:false"`
@@ -65,14 +65,14 @@ type Configuration struct {
 	Order        int       `json:"order" gorm:"default:0"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
-	CreatedBy    uint      `json:"created_by" gorm:"not null"`
-	UpdatedBy    *uint     `json:"updated_by"`
+	CreatedBy    string    `json:"created_by" gorm:"size:50;not null;index"`
+	UpdatedBy    *string   `json:"updated_by" gorm:"size:50;index"`
 
 	// 关联
-	User    *User `json:"user,omitempty" gorm:"foreignKey:CreatedBy"`
-	Updater *User `json:"updater,omitempty" gorm:"foreignKey:UpdatedBy"`
+	User    *User `json:"user,omitempty" gorm:"foreignKey:CreatedBy;references:ID"`
+	Updater *User `json:"updater,omitempty" gorm:"foreignKey:UpdatedBy;references:ID"`
 	Node    *Node `json:"node,omitempty" gorm:"foreignKey:NodeID"`
-	Owner   *User `json:"owner,omitempty" gorm:"foreignKey:UserID"`
+	Owner   *User `json:"owner,omitempty" gorm:"foreignKey:UserID;references:ID"`
 }
 
 // GetParsedValue 获取解析后的值
@@ -151,12 +151,12 @@ type EnvironmentVariable struct {
 	IsActive    bool      `json:"is_active" gorm:"default:true"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
-	CreatedBy   uint      `json:"created_by" gorm:"not null"`
-	UpdatedBy   *uint     `json:"updated_by"`
+	CreatedBy   string    `json:"created_by" gorm:"size:50;not null;index"`
+	UpdatedBy   *string   `json:"updated_by" gorm:"size:50;index"`
 
 	// 关联
-	User    *User `json:"user,omitempty" gorm:"foreignKey:CreatedBy"`
-	Updater *User `json:"updater,omitempty" gorm:"foreignKey:UpdatedBy"`
+	User    *User `json:"user,omitempty" gorm:"foreignKey:CreatedBy;references:ID"`
+	Updater *User `json:"updater,omitempty" gorm:"foreignKey:UpdatedBy;references:ID"`
 	Node    *Node `json:"node,omitempty" gorm:"foreignKey:NodeID"`
 }
 
@@ -181,10 +181,10 @@ type ConfigurationHistory struct {
 	IPAddress  string    `json:"ip_address"`
 	UserAgent  string    `json:"user_agent"`
 	CreatedAt  time.Time `json:"created_at"`
-	CreatedBy  uint      `json:"created_by" gorm:"not null"`
+	CreatedBy  string    `json:"created_by" gorm:"size:50;not null;index"`
 
 	// 关联
-	User          *User                `json:"user,omitempty" gorm:"foreignKey:CreatedBy"`
+	User          *User                `json:"user,omitempty" gorm:"foreignKey:CreatedBy;references:ID"`
 	Configuration *Configuration       `json:"configuration,omitempty" gorm:"foreignKey:ConfigID"`
 	EnvVar        *EnvironmentVariable `json:"env_var,omitempty" gorm:"foreignKey:EnvVarID"`
 }
@@ -197,19 +197,19 @@ type ConfigurationBackup struct {
 	BackupType  string    `json:"backup_type" gorm:"not null;index"` // full, partial, auto
 	Scope       string    `json:"scope" gorm:"not null"`             // global, node, user
 	NodeID      *uint     `json:"node_id" gorm:"index"`
-	UserID      *uint     `json:"user_id" gorm:"index"`
+	UserID      *string   `json:"user_id" gorm:"size:50;index"`
 	Data        string    `json:"data" gorm:"type:longtext;not null"` // JSON格式的配置数据
 	Checksum    string    `json:"checksum" gorm:"not null"`           // 数据校验和
 	Size        int64     `json:"size" gorm:"not null"`               // 备份大小（字节）
 	Version     string    `json:"version"`                            // 系统版本
 	IsAutomatic bool      `json:"is_automatic" gorm:"default:false"`  // 是否自动备份
 	CreatedAt   time.Time `json:"created_at"`
-	CreatedBy   uint      `json:"created_by" gorm:"not null"`
+	CreatedBy   string    `json:"created_by" gorm:"size:50;not null;index"`
 
 	// 关联
-	User  *User `json:"user,omitempty" gorm:"foreignKey:CreatedBy"`
+	User  *User `json:"user,omitempty" gorm:"foreignKey:CreatedBy;references:ID"`
 	Node  *Node `json:"node,omitempty" gorm:"foreignKey:NodeID"`
-	Owner *User `json:"owner,omitempty" gorm:"foreignKey:UserID"`
+	Owner *User `json:"owner,omitempty" gorm:"foreignKey:UserID;references:ID"`
 }
 
 // GetParsedData 获取解析后的备份数据
@@ -241,12 +241,12 @@ type ConfigurationTemplate struct {
 	UsageCount  int       `json:"usage_count" gorm:"default:0"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
-	CreatedBy   uint      `json:"created_by" gorm:"not null"`
-	UpdatedBy   *uint     `json:"updated_by"`
+	CreatedBy   string    `json:"created_by" gorm:"size:50;not null;index"`
+	UpdatedBy   *string   `json:"updated_by" gorm:"size:50;index"`
 
 	// 关联
-	User    *User `json:"user,omitempty" gorm:"foreignKey:CreatedBy"`
-	Updater *User `json:"updater,omitempty" gorm:"foreignKey:UpdatedBy"`
+	User    *User `json:"user,omitempty" gorm:"foreignKey:CreatedBy;references:ID"`
+	Updater *User `json:"updater,omitempty" gorm:"foreignKey:UpdatedBy;references:ID"`
 }
 
 // GetParsedTemplate 获取解析后的模板数据
@@ -282,10 +282,10 @@ type ConfigurationValidation struct {
 	Order          int       `json:"order" gorm:"default:0"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
-	CreatedBy      uint      `json:"created_by" gorm:"not null"`
+	CreatedBy      string    `json:"created_by" gorm:"size:50;not null;index"`
 
 	// 关联
-	User *User `json:"user,omitempty" gorm:"foreignKey:CreatedBy"`
+	User *User `json:"user,omitempty" gorm:"foreignKey:CreatedBy;references:ID"`
 }
 
 // ConfigurationAudit 配置审计日志模型
@@ -301,10 +301,10 @@ type ConfigurationAudit struct {
 	Success      bool      `json:"success" gorm:"default:true"`
 	ErrorMessage *string   `json:"error_message" gorm:"type:text"`
 	CreatedAt    time.Time `json:"created_at"`
-	CreatedBy    uint      `json:"created_by" gorm:"not null"`
+	CreatedBy    string    `json:"created_by" gorm:"size:50;not null;index"`
 
 	// 关联
-	User *User `json:"user,omitempty" gorm:"foreignKey:CreatedBy"`
+	User *User `json:"user,omitempty" gorm:"foreignKey:CreatedBy;references:ID"`
 }
 
 // GetParsedDetails 获取解析后的详细信息

@@ -1,20 +1,22 @@
-import { useEffect } from 'react';
+import { Suspense, lazy, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { Spin } from 'antd';
 import { useStore } from '@/store';
 import { authApi } from '@/api/auth';
 import { settingsApi } from '@/api/settings';
 import MainLayout from '@/layouts/MainLayout';
-import Login from '@/pages/Login';
-import Dashboard from '@/pages/Dashboard';
-import NodeList from '@/pages/Nodes';
-import NodeDetail from '@/pages/Nodes/NodeDetail';
-import ProcessesPage from '@/pages/Processes';
-import EnvironmentList from '@/pages/Environments';
-import EnvironmentDetail from '@/pages/Environments/EnvironmentDetail';
-import UserList from '@/pages/Users';
-import LogList from '@/pages/Logs';
-import Settings from '@/pages/Settings';
-import DiscoveryPage from '@/pages/Discovery';
+
+const Login = lazy(() => import('@/pages/Login'));
+const Dashboard = lazy(() => import('@/pages/Dashboard'));
+const NodeList = lazy(() => import('@/pages/Nodes'));
+const NodeDetail = lazy(() => import('@/pages/Nodes/NodeDetail'));
+const ProcessesPage = lazy(() => import('@/pages/Processes'));
+const EnvironmentList = lazy(() => import('@/pages/Environments'));
+const EnvironmentDetail = lazy(() => import('@/pages/Environments/EnvironmentDetail'));
+const UserList = lazy(() => import('@/pages/Users'));
+const LogList = lazy(() => import('@/pages/Logs'));
+const Settings = lazy(() => import('@/pages/Settings'));
+const DiscoveryPage = lazy(() => import('@/pages/Discovery'));
 
 // Protected Route Component
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -25,6 +27,14 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
   
   return <>{children}</>;
+}
+
+function RouteFallback() {
+  return (
+    <div style={{ minHeight: '50vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <Spin size="large" />
+    </div>
+  );
 }
 
 function App() {
@@ -91,42 +101,44 @@ function App() {
   };
 
   return (
-    <Routes>
-      <Route path="/login" element={<Login />} />
-      
-      <Route
-        path="/"
-        element={
-          <ProtectedRoute>
-            <MainLayout />
-          </ProtectedRoute>
-        }
-      >
-        <Route index element={<Navigate to="/dashboard" replace />} />
-        <Route path="dashboard" element={<Dashboard />} />
-        <Route path="nodes" element={<NodeList />} />
-        <Route path="nodes/:nodeName" element={<NodeDetail />} />
-        <Route path="processes" element={<ProcessesPage />} />
-        <Route path="environments" element={<EnvironmentList />} />
-        <Route path="environments/:environmentName" element={<EnvironmentDetail />} />
-        <Route path="users" element={<UserList />} />
-        <Route path="logs" element={<LogList />} />
-        <Route path="discovery" element={<DiscoveryPage />} />
-        <Route path="settings" element={<Settings />} />
-      </Route>
-      
-      {/* 未匹配的路由：已登录去 dashboard，未登录去 login */}
-      <Route 
-        path="*" 
-        element={
-          isAuthenticated ? (
-            <Navigate to="/dashboard" replace />
-          ) : (
-            <Navigate to="/login" replace />
-          )
-        } 
-      />
-    </Routes>
+    <Suspense fallback={<RouteFallback />}>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute>
+              <MainLayout />
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route path="dashboard" element={<Dashboard />} />
+          <Route path="nodes" element={<NodeList />} />
+          <Route path="nodes/:nodeName" element={<NodeDetail />} />
+          <Route path="processes" element={<ProcessesPage />} />
+          <Route path="environments" element={<EnvironmentList />} />
+          <Route path="environments/:environmentName" element={<EnvironmentDetail />} />
+          <Route path="users" element={<UserList />} />
+          <Route path="logs" element={<LogList />} />
+          <Route path="discovery" element={<DiscoveryPage />} />
+          <Route path="settings" element={<Settings />} />
+        </Route>
+        
+        {/* 未匹配的路由：已登录去 dashboard，未登录去 login */}
+        <Route 
+          path="*" 
+          element={
+            isAuthenticated ? (
+              <Navigate to="/dashboard" replace />
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          } 
+        />
+      </Routes>
+    </Suspense>
   );
 }
 

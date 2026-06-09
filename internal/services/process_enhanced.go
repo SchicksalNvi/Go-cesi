@@ -5,10 +5,10 @@ import (
 	"time"
 
 	"github.com/robfig/cron/v3"
-	"superview/internal/logger"
-	"superview/internal/models"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"superview/internal/logger"
+	"superview/internal/models"
 )
 
 // ProcessEnhancedService 进程增强服务
@@ -28,7 +28,7 @@ type TaskScheduler struct {
 func NewProcessEnhancedService(db *gorm.DB) *ProcessEnhancedService {
 	service := &ProcessEnhancedService{
 		db:      db,
-		cronJob: cron.New(cron.WithSeconds()),
+		cronJob: cron.New(),
 	}
 	service.scheduler = &TaskScheduler{
 		service: service,
@@ -86,7 +86,7 @@ func (s *ProcessEnhancedService) loadScheduledTasks() error {
 
 // CreateProcessGroup 创建进程分组
 func (s *ProcessEnhancedService) CreateProcessGroup(group *models.ProcessGroup) error {
-	return s.db.Create(group).Error
+	return createAndPreserveBool(s.db, group, "enabled", group.Enabled)
 }
 
 // GetProcessGroups 获取进程分组列表
@@ -287,7 +287,7 @@ func (s *ProcessEnhancedService) CreateScheduledTask(task *models.ScheduledTask)
 	nextRun := s.calculateNextRun(task.CronExpr)
 	task.NextRun = &nextRun
 
-	err = s.db.Create(task).Error
+	err = createAndPreserveBool(s.db, task, "enabled", task.Enabled)
 	if err != nil {
 		return err
 	}
@@ -358,7 +358,14 @@ func (s *ProcessEnhancedService) GetScheduledTaskByID(id uint) (*models.Schedule
 func (s *ProcessEnhancedService) UpdateScheduledTask(id uint, updates map[string]interface{}) error {
 	// 如果更新了cron表达式，重新计算下次运行时间
 	if cronExpr, exists := updates["cron_expr"]; exists {
-		nextRun := s.calculateNextRun(cronExpr.(string))
+		cronExprStr, ok := cronExpr.(string)
+		if !ok {
+			return fmt.Errorf("invalid cron expression")
+		}
+		if _, err := cron.ParseStandard(cronExprStr); err != nil {
+			return fmt.Errorf("invalid cron expression: %v", err)
+		}
+		nextRun := s.calculateNextRun(cronExprStr)
 		updates["next_run"] = nextRun
 	}
 

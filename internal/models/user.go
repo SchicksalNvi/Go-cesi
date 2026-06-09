@@ -75,9 +75,15 @@ func (u *User) IsSuperAdmin() bool {
 }
 
 // CanAccessNode 检查用户是否可以访问指定节点
-func (u *User) CanAccessNode(nodeID string, action string) bool {
+func (u *User) CanAccessNode(nodeID uint, action string) bool {
 	// 超级管理员拥有所有权限
 	if u.IsSuperAdmin() {
+		return true
+	}
+
+	// When no node-scoped ACL exists, route-level permission checks remain the source
+	// of truth and the node scope should not impose extra restrictions.
+	if len(u.NodeAccess) == 0 {
 		return true
 	}
 
@@ -85,24 +91,14 @@ func (u *User) CanAccessNode(nodeID string, action string) bool {
 	for _, access := range u.NodeAccess {
 		if access.NodeID == nodeID {
 			switch action {
-			case "read":
+			case "read", "log":
 				return access.CanRead
-			case "write":
+			case "write", "execute":
 				return access.CanWrite
 			case "delete":
 				return access.CanDelete
 			}
 		}
-	}
-
-	// 检查角色权限
-	switch action {
-	case "read":
-		return u.HasPermission(PermissionNodeRead)
-	case "write":
-		return u.HasPermission(PermissionNodeWrite)
-	case "delete":
-		return u.HasPermission(PermissionNodeDelete)
 	}
 
 	return false

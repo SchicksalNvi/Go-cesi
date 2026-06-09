@@ -12,6 +12,32 @@ export interface User {
   updated_at: string;
 }
 
+export interface AvailableNode {
+  id: number;
+  name: string;
+  environment?: string;
+  host: string;
+  port: number;
+}
+
+export interface UserNodeAccess {
+  id?: string;
+  node_id: number;
+  can_read: boolean;
+  can_write: boolean;
+  can_delete: boolean;
+  node?: AvailableNode;
+}
+
+export interface UserNodeAccessResponse {
+  status: string;
+  data: {
+    user_id: string;
+    node_access: UserNodeAccess[];
+    available_nodes: AvailableNode[];
+  };
+}
+
 export interface CreateUserRequest {
   username: string;
   email: string;
@@ -78,6 +104,17 @@ export const usersApi = {
 
   updateUserPreferences: async (userId: string, data: UserPreferencesData): Promise<UserPreferencesData> => {
     return client.put(`/system-settings/users/${userId}/preferences`, data);
+  },
+
+  getUserNodeAccess: async (userId: string): Promise<UserNodeAccessResponse> => {
+    return client.get(`/users/${userId}/node-access`);
+  },
+
+  updateUserNodeAccess: async (
+    userId: string,
+    data: { node_access: Array<Pick<UserNodeAccess, 'node_id' | 'can_read' | 'can_write' | 'can_delete'>> }
+  ): Promise<UserNodeAccessResponse> => {
+    return client.put(`/users/${userId}/node-access`, data);
   },
 };
 

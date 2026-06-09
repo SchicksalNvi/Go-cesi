@@ -4,18 +4,33 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"superview/internal/errors"
-	"superview/internal/logger"
-	"superview/internal/models"
-	"superview/internal/repository"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"superview/internal/errors"
+	"superview/internal/logger"
+	"superview/internal/repository"
 )
 
 // PermissionChecker 权限检查器
 type PermissionChecker struct {
 	db       *gorm.DB
 	userRepo repository.UserRepository
+}
+
+func getContextUserID(c *gin.Context) (string, bool) {
+	if userID, exists := c.Get("user_id"); exists {
+		if userIDStr, ok := userID.(string); ok && userIDStr != "" {
+			return userIDStr, true
+		}
+	}
+
+	if userID, exists := c.Get("userID"); exists {
+		if userIDStr, ok := userID.(string); ok && userIDStr != "" {
+			return userIDStr, true
+		}
+	}
+
+	return "", false
 }
 
 // NewPermissionChecker 创建权限检查器
@@ -29,7 +44,7 @@ func NewPermissionChecker(db *gorm.DB) *PermissionChecker {
 // RequirePermission 要求特定权限的中间件
 func (pc *PermissionChecker) RequirePermission(permission string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userID, exists := c.Get("userID")
+		userIDStr, exists := getContextUserID(c)
 		if !exists {
 			logger.Warn("Permission check failed: no user ID in context",
 				zap.String("permission", permission))
@@ -38,20 +53,6 @@ func (pc *PermissionChecker) RequirePermission(permission string) gin.HandlerFun
 				"error": gin.H{
 					"code":    "UNAUTHORIZED",
 					"message": "未认证",
-				},
-			})
-			return
-		}
-
-		userIDStr, ok := userID.(string)
-		if !ok {
-			logger.Error("Permission check failed: invalid user ID type",
-				zap.Any("userID", userID))
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-				"status": "error",
-				"error": gin.H{
-					"code":    "INTERNAL_ERROR",
-					"message": "内部错误",
 				},
 			})
 			return
@@ -98,7 +99,7 @@ func (pc *PermissionChecker) RequirePermission(permission string) gin.HandlerFun
 // RequireAnyPermission 要求任意一个权限的中间件
 func (pc *PermissionChecker) RequireAnyPermission(permissions ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userID, exists := c.Get("userID")
+		userIDStr, exists := getContextUserID(c)
 		if !exists {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"status": "error",
@@ -109,8 +110,6 @@ func (pc *PermissionChecker) RequireAnyPermission(permissions ...string) gin.Han
 			})
 			return
 		}
-
-		userIDStr := userID.(string)
 
 		// 检查用户是否有任意一个权限
 		for _, permission := range permissions {
@@ -148,7 +147,7 @@ func (pc *PermissionChecker) RequireAnyPermission(permissions ...string) gin.Han
 // RequireAllPermissions 要求所有权限的中间件
 func (pc *PermissionChecker) RequireAllPermissions(permissions ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userID, exists := c.Get("userID")
+		userIDStr, exists := getContextUserID(c)
 		if !exists {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"status": "error",
@@ -159,8 +158,6 @@ func (pc *PermissionChecker) RequireAllPermissions(permissions ...string) gin.Ha
 			})
 			return
 		}
-
-		userIDStr := userID.(string)
 
 		// 检查用户是否有所有权限
 		for _, permission := range permissions {
@@ -206,7 +203,7 @@ func (pc *PermissionChecker) RequireAllPermissions(permissions ...string) gin.Ha
 // RequireRole 要求特定角色的中间件
 func (pc *PermissionChecker) RequireRole(role string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userID, exists := c.Get("userID")
+		userIDStr, exists := getContextUserID(c)
 		if !exists {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"status": "error",
@@ -217,8 +214,6 @@ func (pc *PermissionChecker) RequireRole(role string) gin.HandlerFunc {
 			})
 			return
 		}
-
-		userIDStr := userID.(string)
 
 		// 检查用户是否有角色
 		hasRole, err := pc.CheckRole(userIDStr, role)
@@ -266,11 +261,10 @@ func (pc *PermissionChecker) CheckPermission(userID, permission string) (bool, e
 		return false, errors.NewDatabaseError("get user", err)
 	}
 
-	// 超级管理员拥有所有权限
-	for _, role := range user.Roles {
-		if role.Name == models.RoleSuperAdmin {
-			return true, nil
-		}
+	// Super admins bypass all permission checks, whether granted by role
+	// or by the legacy IsAdmin flag.
+	if user.IsSuperAdmin() {
+		return true, nil
 	}
 
 	// 检查用户的角色是否有该权限
