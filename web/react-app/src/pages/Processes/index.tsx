@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import {
   Card,
   Input,
@@ -24,12 +24,12 @@ import {
 } from '@ant-design/icons';
 import { processesApi } from '@/api/processes';
 import { AggregatedProcess, BatchOperationResult } from '@/types';
-import ProcessInstanceList from './ProcessInstanceList';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { useStore } from '@/store';
 
 const { Search } = Input;
+const ProcessInstanceList = lazy(() => import('./ProcessInstanceList'));
 
 const ProcessesPage: React.FC = () => {
   const { t } = useStore();
@@ -38,6 +38,7 @@ const ProcessesPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [searchText, setSearchText] = useState('');
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
+  const [expandedProcesses, setExpandedProcesses] = useState<Record<string, boolean>>({});
 
   // function declaration — hoisted, avoids TDZ in minified bundle
   async function loadProcesses() {
@@ -91,6 +92,14 @@ const ProcessesPage: React.FC = () => {
 
   const handleSearch = (value: string) => {
     setSearchText(value);
+  };
+
+  const handleDetailsToggle = (processName: string, keys: string | string[]) => {
+    const activeKeys = Array.isArray(keys) ? keys : [keys];
+    setExpandedProcesses((prev) => ({
+      ...prev,
+      [processName]: activeKeys.includes('details'),
+    }));
   };
 
   const handleBatchOperation = async (
@@ -282,17 +291,26 @@ const ProcessesPage: React.FC = () => {
               </div>
 
               <Collapse
+                onChange={(keys) => handleDetailsToggle(proc.name, keys)}
                 items={[
                   {
-                    key: '1',
+                    key: 'details',
                     label: t.common.details,
-                    children: (
-                      <ProcessInstanceList
-                        instances={proc.instances}
-                        processName={proc.name}
-                        onRefresh={loadProcesses}
-                      />
-                    ),
+                    children: expandedProcesses[proc.name] ? (
+                      <Suspense
+                        fallback={
+                          <div style={{ textAlign: 'center', padding: 24 }}>
+                            <Spin />
+                          </div>
+                        }
+                      >
+                        <ProcessInstanceList
+                          instances={proc.instances}
+                          processName={proc.name}
+                          onRefresh={loadProcesses}
+                        />
+                      </Suspense>
+                    ) : null,
                   },
                 ]}
               />

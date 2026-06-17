@@ -1,11 +1,6 @@
 import apiClient from './client';
 import { ApiResponse } from '@/types';
 
-export interface ChangePasswordRequest {
-  old_password: string;
-  new_password: string;
-}
-
 export interface UserPreferences {
   id?: string;
   user_id?: string;
@@ -42,10 +37,6 @@ export interface SystemSettingsResponse {
 }
 
 export const settingsApi = {
-  // 密码修改 - 需要用户名参数
-  changePassword: (username: string, data: ChangePasswordRequest) =>
-    apiClient.put<ApiResponse<{ message: string }>>(`/users-legacy/${username}/password`, data),
-
   // 用户偏好设置
   getUserPreferences: () =>
     apiClient.get<UserPreferences>('/system-settings/user-preferences'),

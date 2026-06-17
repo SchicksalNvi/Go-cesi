@@ -305,6 +305,8 @@ func (s *Scanner) runScan(ctx context.Context, config *ScanConfig, ips []string,
 
 	// Create probe tasks for all IPs
 	probeTasks := make([]*ProbeTask, len(ips))
+	// Index tasks by their ID for O(1) result lookup (avoids O(n²) linear scan).
+	taskByID := make(map[string]*ProbeTask, len(ips))
 	for i, ip := range ips {
 		probeTasks[i] = &ProbeTask{
 			TaskID:   taskID,
@@ -314,6 +316,7 @@ func (s *Scanner) runScan(ctx context.Context, config *ScanConfig, ips []string,
 			Password: config.Password,
 			Timeout:  timeout,
 		}
+		taskByID[probeTasks[i].ID()] = probeTasks[i]
 	}
 
 	// Submit all tasks to the worker pool
@@ -337,18 +340,36 @@ func (s *Scanner) runScan(ctx context.Context, config *ScanConfig, ips []string,
 	var foundNodes int32
 	var failedIPs int32
 
-	// Track results for each IP
-	resultMap := make(map[string]*ProbeTask)
-	var resultMu sync.Mutex
-
 	// Process results from worker pool
 	resultsCh := pool.Results()
 	expectedResults := len(ips)
 	receivedResults := 0
 
-	// Progress broadcast interval
+	// Progress broadcast interval (in-memory broadcast is cheap)
 	const progressInterval = 10
 	lastBroadcast := 0
+
+	// Batch discovery-result inserts instead of one INSERT per probed IP.
+	const resultBatchSize = 100
+	pendingResults := make([]*models.DiscoveryResult, 0, resultBatchSize)
+	flushResults := func() {
+		if len(pendingResults) == 0 {
+			return
+		}
+		if err := s.service.CreateResults(pendingResults); err != nil {
+			logger.Error("Failed to batch-create discovery results",
+				zap.Uint("task_id", taskID),
+				zap.Int("count", len(pendingResults)),
+				zap.Error(err))
+		}
+		pendingResults = pendingResults[:0]
+	}
+	// Ensure buffered results are persisted even on early return (cancellation).
+	defer flushResults()
+
+	// Throttle DB progress writes by time rather than every N results.
+	const progressDBInterval = 2 * time.Second
+	lastProgressDB := time.Now()
 
 	for receivedResults < expectedResults {
 		select {
@@ -366,22 +387,11 @@ func (s *Scanner) runScan(ctx context.Context, config *ScanConfig, ips []string,
 			receivedResults++
 			atomic.AddInt32(&scannedIPs, 1)
 
-			// Find the corresponding probe task
-			var probeTask *ProbeTask
-			for _, pt := range probeTasks {
-				if pt.ID() == result.TaskID {
-					probeTask = pt
-					break
-				}
-			}
-
+			// O(1) lookup of the corresponding probe task.
+			probeTask := taskByID[result.TaskID]
 			if probeTask == nil {
 				continue
 			}
-
-			resultMu.Lock()
-			resultMap[probeTask.IP] = probeTask
-			resultMu.Unlock()
 
 			// Count results
 			if probeTask.Status == models.ResultStatusSuccess {
@@ -396,8 +406,11 @@ func (s *Scanner) runScan(ctx context.Context, config *ScanConfig, ips []string,
 				atomic.AddInt32(&failedIPs, 1)
 			}
 
-			// Create discovery result record
-			s.createDiscoveryResult(taskID, probeTask)
+			// Buffer discovery result for batch insert
+			pendingResults = append(pendingResults, s.buildDiscoveryResult(taskID, probeTask))
+			if len(pendingResults) >= resultBatchSize {
+				flushResults()
+			}
 
 			// Broadcast progress periodically
 			currentScanned := int(atomic.LoadInt32(&scannedIPs))
@@ -407,16 +420,22 @@ func (s *Scanner) runScan(ctx context.Context, config *ScanConfig, ips []string,
 					int(atomic.LoadInt32(&failedIPs)))
 				lastBroadcast = currentScanned
 
-				// Update task progress in database
-				s.service.UpdateTaskProgress(taskID,
-					currentScanned,
-					int(atomic.LoadInt32(&foundNodes)),
-					int(atomic.LoadInt32(&failedIPs)))
+				// Update task progress in database, throttled by time.
+				if now := time.Now(); now.Sub(lastProgressDB) >= progressDBInterval || currentScanned == len(ips) {
+					s.service.UpdateTaskProgress(taskID,
+						currentScanned,
+						int(atomic.LoadInt32(&foundNodes)),
+						int(atomic.LoadInt32(&failedIPs)))
+					lastProgressDB = now
+				}
 			}
 		}
 	}
 
 done:
+	// Persist any remaining buffered results before completing.
+	flushResults()
+
 	// Mark task as completed
 	completedAt := time.Now()
 	s.markTaskCompleted(taskID, &completedAt,
@@ -586,8 +605,8 @@ func generateNodeName(ip string) string {
 	return "node-" + strings.ReplaceAll(ip, ".", "-")
 }
 
-// createDiscoveryResult creates a discovery result record.
-func (s *Scanner) createDiscoveryResult(taskID uint, probe *ProbeTask) {
+// buildDiscoveryResult builds a discovery result record for batch insertion.
+func (s *Scanner) buildDiscoveryResult(taskID uint, probe *ProbeTask) *models.DiscoveryResult {
 	result := &models.DiscoveryResult{
 		TaskID:   taskID,
 		IP:       probe.IP,
@@ -611,12 +630,7 @@ func (s *Scanner) createDiscoveryResult(taskID uint, probe *ProbeTask) {
 		}
 	}
 
-	if err := s.service.CreateResult(result); err != nil {
-		logger.Error("Failed to create discovery result",
-			zap.Uint("task_id", taskID),
-			zap.String("ip", probe.IP),
-			zap.Error(err))
-	}
+	return result
 }
 
 // WebSocket event types for discovery

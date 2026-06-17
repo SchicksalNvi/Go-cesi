@@ -103,6 +103,7 @@ func SetupRoutes(r *gin.Engine, db *gorm.DB, service *supervisor.SupervisorServi
 		{
 			profileGroup.GET("", userAPI.GetProfile)
 			profileGroup.PUT("", userAPI.UpdateProfile)
+			profileGroup.PUT("/password", userAPI.ChangeOwnPassword)
 		}
 
 		// Environments API
@@ -342,18 +343,23 @@ func SetupRoutes(r *gin.Engine, db *gorm.DB, service *supervisor.SupervisorServi
 		{
 			// 数据导出
 			dataManagementGroup.POST("/export", dataManagementHandler.ExportData)
+			dataManagementGroup.POST("/exports", dataManagementHandler.ExportData)
 			dataManagementGroup.GET("/exports", dataManagementHandler.GetExportRecords)
 			dataManagementGroup.GET("/exports/:id/download", dataManagementHandler.DownloadExportFile)
 			dataManagementGroup.DELETE("/exports/:id", dataManagementHandler.DeleteExportRecord)
 
 			// 数据备份
 			dataManagementGroup.POST("/backup", dataManagementHandler.CreateBackup)
+			dataManagementGroup.POST("/backups", dataManagementHandler.CreateBackup)
 			dataManagementGroup.GET("/backups", dataManagementHandler.GetBackupRecords)
 			dataManagementGroup.GET("/backups/:id/download", dataManagementHandler.DownloadBackupFile)
 			dataManagementGroup.DELETE("/backups/:id", dataManagementHandler.DeleteBackupRecord)
 
 			// 数据导入
 			dataManagementGroup.POST("/import", dataManagementHandler.ImportData)
+			dataManagementGroup.POST("/imports", dataManagementHandler.ImportData)
+			dataManagementGroup.GET("/imports", dataManagementHandler.GetImportRecords)
+			dataManagementGroup.DELETE("/imports/:id", dataManagementHandler.DeleteImportRecord)
 		}
 
 		// System Settings API

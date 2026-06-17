@@ -1,7 +1,10 @@
 package services
 
 import (
+	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -12,6 +15,8 @@ import (
 type ActivityLogService struct {
 	db *gorm.DB
 }
+
+var ErrInvalidActivityLogTimeFilter = errors.New("invalid activity log time filter")
 
 func contextUserID(c *gin.Context) string {
 	for _, key := range []string{"user_id", "userID"} {
@@ -26,6 +31,82 @@ func contextUserID(c *gin.Context) string {
 
 func NewActivityLogService(db *gorm.DB) *ActivityLogService {
 	return &ActivityLogService{db: db}
+}
+
+func parseActivityLogTimeFilter(value interface{}) (time.Time, error) {
+	switch v := value.(type) {
+	case time.Time:
+		return v, nil
+	case *time.Time:
+		if v == nil {
+			return time.Time{}, fmt.Errorf("%w: nil time", ErrInvalidActivityLogTimeFilter)
+		}
+		return *v, nil
+	case string:
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" {
+			return time.Time{}, fmt.Errorf("%w: empty string", ErrInvalidActivityLogTimeFilter)
+		}
+
+		if unixValue, err := strconv.ParseInt(trimmed, 10, 64); err == nil {
+			if len(trimmed) >= 13 {
+				return time.UnixMilli(unixValue), nil
+			}
+			return time.Unix(unixValue, 0), nil
+		}
+
+		for _, layout := range []string{
+			time.RFC3339Nano,
+			time.RFC3339,
+			"2006-01-02 15:04:05",
+			"2006-01-02",
+		} {
+			if parsed, err := time.Parse(layout, trimmed); err == nil {
+				return parsed, nil
+			}
+		}
+
+		return time.Time{}, fmt.Errorf("%w: %s", ErrInvalidActivityLogTimeFilter, trimmed)
+	default:
+		return time.Time{}, fmt.Errorf("%w: unsupported type %T", ErrInvalidActivityLogTimeFilter, value)
+	}
+}
+
+func applyActivityLogFilters(query *gorm.DB, filters map[string]interface{}) (*gorm.DB, error) {
+	for key, value := range filters {
+		if value == nil || value == "" {
+			continue
+		}
+
+		switch key {
+		case "level":
+			query = query.Where("level = ?", value)
+		case "action":
+			query = query.Where("action = ?", value)
+		case "resource":
+			if str, ok := value.(string); ok {
+				query = query.Where("resource LIKE ?", "%"+str+"%")
+			}
+		case "username":
+			if str, ok := value.(string); ok {
+				query = query.Where("username LIKE ?", "%"+str+"%")
+			}
+		case "start_time":
+			parsed, err := parseActivityLogTimeFilter(value)
+			if err != nil {
+				return nil, err
+			}
+			query = query.Where("created_at >= ?", parsed)
+		case "end_time":
+			parsed, err := parseActivityLogTimeFilter(value)
+			if err != nil {
+				return nil, err
+			}
+			query = query.Where("created_at <= ?", parsed)
+		}
+	}
+
+	return query, nil
 }
 
 // LogActivity 记录活动日志
@@ -120,32 +201,9 @@ func (s *ActivityLogService) GetActivityLogs(page, pageSize int, filters map[str
 
 	query := s.db.Model(&models.ActivityLog{})
 
-	// 应用过滤器
-	for key, value := range filters {
-		if value != nil && value != "" {
-			switch key {
-			case "level":
-				query = query.Where("level = ?", value)
-			case "action":
-				query = query.Where("action = ?", value)
-			case "resource":
-				if str, ok := value.(string); ok {
-					query = query.Where("resource LIKE ?", "%"+str+"%")
-				}
-			case "username":
-				if str, ok := value.(string); ok {
-					query = query.Where("username LIKE ?", "%"+str+"%")
-				}
-			case "start_time":
-				if str, ok := value.(string); ok && str != "" {
-					query = query.Where("created_at >= ?", str)
-				}
-			case "end_time":
-				if str, ok := value.(string); ok && str != "" {
-					query = query.Where("created_at <= ?", str)
-				}
-			}
-		}
+	query, err := applyActivityLogFilters(query, filters)
+	if err != nil {
+		return nil, 0, err
 	}
 
 	// 获取总数
@@ -262,33 +320,9 @@ func (s *ActivityLogService) DeleteLogs(filters map[string]interface{}) (int64, 
 	query := s.db.Model(&models.ActivityLog{})
 	hasFilter := false
 
-	// 应用过滤器
-	for key, value := range filters {
-		if value != nil && value != "" {
-			hasFilter = true
-			switch key {
-			case "level":
-				query = query.Where("level = ?", value)
-			case "action":
-				query = query.Where("action = ?", value)
-			case "resource":
-				if str, ok := value.(string); ok {
-					query = query.Where("resource LIKE ?", "%"+str+"%")
-				}
-			case "username":
-				if str, ok := value.(string); ok {
-					query = query.Where("username LIKE ?", "%"+str+"%")
-				}
-			case "start_time":
-				if str, ok := value.(string); ok && str != "" {
-					query = query.Where("created_at >= ?", str)
-				}
-			case "end_time":
-				if str, ok := value.(string); ok && str != "" {
-					query = query.Where("created_at <= ?", str)
-				}
-			}
-		}
+	query, err := applyActivityLogFilters(query, filters)
+	if err != nil {
+		return 0, err
 	}
 
 	// 执行删除
@@ -347,32 +381,9 @@ func (s *ActivityLogService) ExportLogs(filters map[string]interface{}) ([]byte,
 
 	query := s.db.Model(&models.ActivityLog{})
 
-	// 应用过滤器
-	for key, value := range filters {
-		if value != nil && value != "" {
-			switch key {
-			case "level":
-				query = query.Where("level = ?", value)
-			case "action":
-				query = query.Where("action = ?", value)
-			case "resource":
-				if str, ok := value.(string); ok {
-					query = query.Where("resource LIKE ?", "%"+str+"%")
-				}
-			case "username":
-				if str, ok := value.(string); ok {
-					query = query.Where("username LIKE ?", "%"+str+"%")
-				}
-			case "start_time":
-				if str, ok := value.(string); ok && str != "" {
-					query = query.Where("created_at >= ?", str)
-				}
-			case "end_time":
-				if str, ok := value.(string); ok && str != "" {
-					query = query.Where("created_at <= ?", str)
-				}
-			}
-		}
+	query, err := applyActivityLogFilters(query, filters)
+	if err != nil {
+		return nil, err
 	}
 
 	// 查询所有符合条件的日志

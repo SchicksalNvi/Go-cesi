@@ -4,14 +4,16 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
+	"time"
 
 	"superview/internal/models"
 	"superview/internal/services"
 
 	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/assert"
 	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
 	"gorm.io/gorm"
 )
 
@@ -94,6 +96,34 @@ func TestGetActivityLogs(t *testing.T) {
 		assert.Equal(t, "success", response["status"])
 	})
 
+	t.Run("Filter by ISO time range", func(t *testing.T) {
+		start := time.Now().Add(-1 * time.Hour).UTC().Format(time.RFC3339)
+		end := time.Now().Add(1 * time.Hour).UTC().Format(time.RFC3339)
+		req, _ := http.NewRequest("GET", "/activity-logs?start_time="+url.QueryEscape(start)+"&end_time="+url.QueryEscape(end)+"&page=1&page_size=20", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var response map[string]interface{}
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		assert.NoError(t, err)
+		assert.Equal(t, "success", response["status"])
+	})
+
+	t.Run("Reject invalid time range filter", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/activity-logs?start_time=not-a-time&page=1&page_size=20", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+
+		var response map[string]interface{}
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		assert.NoError(t, err)
+		assert.Equal(t, "error", response["status"])
+	})
+
 	// 测试分页
 	t.Run("Pagination", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/activity-logs?page=1&page_size=1", nil)
@@ -105,7 +135,7 @@ func TestGetActivityLogs(t *testing.T) {
 		var response map[string]interface{}
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(t, err)
-		
+
 		data := response["data"].(map[string]interface{})
 		pagination := data["pagination"].(map[string]interface{})
 		assert.Equal(t, float64(1), pagination["page"])
@@ -192,6 +222,14 @@ func TestExportLogs(t *testing.T) {
 		assert.Contains(t, w.Header().Get("Content-Disposition"), "attachment")
 		assert.Contains(t, w.Body.String(), "ID,Created At,Level")
 	})
+
+	t.Run("Export logs with invalid time filter", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/activity-logs/export?start_time=bad-value", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
 }
 
 func TestGetLogStatistics(t *testing.T) {
@@ -230,7 +268,7 @@ func TestGetLogStatistics(t *testing.T) {
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(t, err)
 		assert.Equal(t, "success", response["status"])
-		
+
 		data := response["data"].(map[string]interface{})
 		assert.NotNil(t, data["total_logs"])
 	})

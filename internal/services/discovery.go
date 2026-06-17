@@ -313,6 +313,11 @@ func (s *DiscoveryService) CreateResult(result *models.DiscoveryResult) error {
 	return s.repo.CreateResult(result)
 }
 
+// CreateResults batch-creates discovery result records.
+func (s *DiscoveryService) CreateResults(results []*models.DiscoveryResult) error {
+	return s.repo.CreateResults(results)
+}
+
 // GetRepository returns the discovery repository.
 // This allows the scanner to access the repository directly if needed.
 func (s *DiscoveryService) GetRepository() repository.DiscoveryRepository {

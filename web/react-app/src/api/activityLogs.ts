@@ -66,9 +66,9 @@ export interface RecentLogsResponse {
 }
 
 class ActivityLogsAPI {
-  async getActivityLogs(filters: ActivityLogsFilters = {}): Promise<ActivityLogsResponse> {
+  private buildQueryString(filters: ActivityLogsFilters = {}): string {
     const params = new URLSearchParams();
-    
+
     if (filters.level) params.append('level', filters.level);
     if (filters.action) params.append('action', filters.action);
     if (filters.resource) params.append('resource', filters.resource);
@@ -78,9 +78,25 @@ class ActivityLogsAPI {
     if (filters.page) params.append('page', filters.page.toString());
     if (filters.page_size) params.append('page_size', filters.page_size.toString());
 
-    const queryString = params.toString();
+    return params.toString();
+  }
+
+  private async readErrorMessage(response: Response, fallback: string): Promise<string> {
+    const payload = await response.json().catch(() => null);
+    if (payload && typeof payload === 'object') {
+      const message = (payload as { message?: string; error?: string }).message
+        || (payload as { message?: string; error?: string }).error;
+      if (message) {
+        return message;
+      }
+    }
+    return fallback;
+  }
+
+  async getActivityLogs(filters: ActivityLogsFilters = {}): Promise<ActivityLogsResponse> {
+    const queryString = this.buildQueryString(filters);
     const url = `/activity-logs${queryString ? `?${queryString}` : ''}`;
-    
+
     return apiClient.get<ActivityLogsResponse>(url);
   }
 
@@ -99,18 +115,9 @@ class ActivityLogsAPI {
   }
 
   async exportLogs(filters: ActivityLogsFilters = {}): Promise<Blob> {
-    const params = new URLSearchParams();
-    
-    if (filters.level) params.append('level', filters.level);
-    if (filters.action) params.append('action', filters.action);
-    if (filters.resource) params.append('resource', filters.resource);
-    if (filters.username) params.append('username', filters.username);
-    if (filters.start_time) params.append('start_time', filters.start_time);
-    if (filters.end_time) params.append('end_time', filters.end_time);
+    const queryString = this.buildQueryString(filters);
+    const url = `/api/activity-logs/export${queryString ? `?${queryString}` : ''}`;
 
-    const queryString = params.toString();
-    const url = `/activity-logs/export${queryString ? `?${queryString}` : ''}`;
-    
     const response = await fetch(url, {
       method: 'GET',
       headers: {
@@ -119,25 +126,16 @@ class ActivityLogsAPI {
     });
 
     if (!response.ok) {
-      throw new Error('Failed to export logs');
+      throw new Error(await this.readErrorMessage(response, 'Failed to export logs'));
     }
 
     return response.blob();
   }
 
   async deleteLogs(filters: ActivityLogsFilters = {}): Promise<{ status: string; message: string; deleted: number }> {
-    const params = new URLSearchParams();
-    
-    if (filters.level) params.append('level', filters.level);
-    if (filters.action) params.append('action', filters.action);
-    if (filters.resource) params.append('resource', filters.resource);
-    if (filters.username) params.append('username', filters.username);
-    if (filters.start_time) params.append('start_time', filters.start_time);
-    if (filters.end_time) params.append('end_time', filters.end_time);
-
-    const queryString = params.toString();
+    const queryString = this.buildQueryString(filters);
     const url = `/api/activity-logs${queryString ? `?${queryString}` : ''}`;
-    
+
     const response = await fetch(url, {
       method: 'DELETE',
       headers: {
@@ -146,7 +144,7 @@ class ActivityLogsAPI {
     });
 
     if (!response.ok) {
-      throw new Error('Failed to delete logs');
+      throw new Error(await this.readErrorMessage(response, 'Failed to delete logs'));
     }
 
     return response.json();

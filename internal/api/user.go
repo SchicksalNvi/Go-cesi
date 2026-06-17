@@ -16,6 +16,34 @@ type UserAPI struct {
 	activityLogService *services.ActivityLogService
 }
 
+func (u *UserAPI) loadUserWithPermissions(userID string) (*models.User, error) {
+	var user models.User
+	err := u.db.
+		Preload("Roles.Permissions").
+		Preload("Roles").
+		Where("id = ?", userID).
+		First(&user).Error
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func profileUserPayload(user *models.User) gin.H {
+	return gin.H{
+		"id":          user.ID,
+		"username":    user.Username,
+		"email":       user.Email,
+		"full_name":   user.FullName,
+		"is_admin":    user.IsAdmin,
+		"is_active":   user.IsActive,
+		"roles":       user.GetRoleNames(),
+		"permissions": user.GetPermissionNames(),
+		"created_at":  user.CreatedAt,
+		"updated_at":  user.UpdatedAt,
+	}
+}
+
 func NewUserAPI(db *gorm.DB, activityLogService ...*services.ActivityLogService) *UserAPI {
 	api := &UserAPI{db: db}
 	if len(activityLogService) > 0 {
@@ -288,8 +316,8 @@ func (u *UserAPI) GetProfile(c *gin.Context) {
 		return
 	}
 
-	var user models.User
-	if err := u.db.Where("id = ?", currentUserID).First(&user).Error; err != nil {
+	user, err := u.loadUserWithPermissions(currentUserID)
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"status":  "error",
 			"message": "用户不存在",
@@ -300,14 +328,7 @@ func (u *UserAPI) GetProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"status": "success",
 		"data": gin.H{
-			"id":         user.ID,
-			"username":   user.Username,
-			"email":      user.Email,
-			"full_name":  user.FullName,
-			"is_admin":   user.IsAdmin,
-			"is_active":  user.IsActive,
-			"created_at": user.CreatedAt,
-			"updated_at": user.UpdatedAt,
+			"user": profileUserPayload(user),
 		},
 	})
 }
@@ -337,8 +358,8 @@ func (u *UserAPI) UpdateProfile(c *gin.Context) {
 		return
 	}
 
-	var user models.User
-	if err := u.db.Where("id = ?", currentUserID).First(&user).Error; err != nil {
+	user, err := u.loadUserWithPermissions(currentUserID)
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"status":  "error",
 			"message": "用户不存在",
@@ -357,10 +378,19 @@ func (u *UserAPI) UpdateProfile(c *gin.Context) {
 	}
 
 	if len(updateData) > 0 {
-		if err := u.db.Model(&user).Updates(updateData).Error; err != nil {
+		if err := u.db.Model(user).Updates(updateData).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"status":  "error",
 				"message": "更新个人资料失败",
+			})
+			return
+		}
+
+		user, err = u.loadUserWithPermissions(currentUserID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"status":  "error",
+				"message": "重新加载个人资料失败",
 			})
 			return
 		}
@@ -370,19 +400,96 @@ func (u *UserAPI) UpdateProfile(c *gin.Context) {
 		"status":  "success",
 		"message": "个人资料更新成功",
 		"data": gin.H{
-			"id":         user.ID,
-			"username":   user.Username,
-			"email":      user.Email,
-			"full_name":  user.FullName,
-			"is_admin":   user.IsAdmin,
-			"is_active":  user.IsActive,
-			"created_at": user.CreatedAt,
-			"updated_at": user.UpdatedAt,
+			"user": profileUserPayload(user),
 		},
 	})
 
 	if u.activityLogService != nil {
 		msg := fmt.Sprintf("User %s updated profile", user.Username)
 		u.activityLogService.LogWithContext(c, "INFO", "update_profile", "user", user.Username, msg, nil)
+	}
+}
+
+// ChangeOwnPassword 更新当前用户密码
+func (u *UserAPI) ChangeOwnPassword(c *gin.Context) {
+	type changePasswordRequest struct {
+		OldPassword string `json:"old_password" binding:"required"`
+		NewPassword string `json:"new_password" binding:"required"`
+	}
+
+	var req changePasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status":  "error",
+			"message": "请求格式无效",
+		})
+		return
+	}
+
+	validator := validation.NewValidator()
+	validator.ValidateRequired("old_password", req.OldPassword)
+	validator.ValidateRequired("new_password", req.NewPassword)
+	validator.ValidateLength("new_password", req.NewPassword, 6, 100)
+	validator.ValidateNoSQLInjection("new_password", req.NewPassword)
+
+	if validator.HasErrors() {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status":  "error",
+			"message": "输入验证失败",
+			"errors":  validator.Errors(),
+		})
+		return
+	}
+
+	currentUserID, ok := getUserIDString(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"status":  "error",
+			"message": "用户未认证",
+		})
+		return
+	}
+
+	var user models.User
+	if err := u.db.Where("id = ?", currentUserID).First(&user).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"status":  "error",
+			"message": "用户不存在",
+		})
+		return
+	}
+
+	if !user.VerifyPassword(req.OldPassword) {
+		c.JSON(http.StatusForbidden, gin.H{
+			"status":  "error",
+			"message": "当前密码错误",
+		})
+		return
+	}
+
+	if err := user.SetPassword(req.NewPassword); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status":  "error",
+			"message": "设置新密码失败",
+		})
+		return
+	}
+
+	if err := u.db.Save(&user).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status":  "error",
+			"message": "更新密码失败",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "success",
+		"message": "密码修改成功",
+	})
+
+	if u.activityLogService != nil {
+		msg := fmt.Sprintf("User %s changed own password", user.Username)
+		u.activityLogService.LogWithContext(c, "INFO", "change_password", "user", user.Username, msg, nil)
 	}
 }

@@ -17,6 +17,34 @@ type AuthService struct {
 	activityLogService *services.ActivityLogService
 }
 
+func (s *AuthService) loadUserForResponse(userID string) (*models.User, error) {
+	var user models.User
+	err := s.db.
+		Preload("Roles.Permissions").
+		Preload("Roles").
+		Where("id = ?", userID).
+		First(&user).Error
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func buildAuthUserPayload(user *models.User) gin.H {
+	return gin.H{
+		"id":          user.ID,
+		"username":    user.Username,
+		"email":       user.Email,
+		"full_name":   user.FullName,
+		"is_admin":    user.IsAdmin,
+		"is_active":   user.IsActive,
+		"roles":       user.GetRoleNames(),
+		"permissions": user.GetPermissionNames(),
+		"created_at":  user.CreatedAt,
+		"updated_at":  user.UpdatedAt,
+	}
+}
+
 func NewAuthService(db *gorm.DB, activityLogService ...*services.ActivityLogService) *AuthService {
 	s := &AuthService{db: db}
 	if len(activityLogService) > 0 {
@@ -115,21 +143,21 @@ func (s *AuthService) Login(c *gin.Context) {
 
 	s.logAuth(c, "login", user.ID, user.Username, fmt.Sprintf("User %s logged in", user.Username))
 
+	userWithPermissions, err := s.loadUserForResponse(user.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status":  "error",
+			"message": "Failed to load user permissions",
+		})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"status":  "success",
 		"message": "Login successful",
 		"data": gin.H{
 			"token": token,
-			"user": gin.H{
-				"id":         user.ID,
-				"username":   user.Username,
-				"email":      user.Email,
-				"full_name":  user.FullName,
-				"is_admin":   user.IsAdmin,
-				"is_active":  user.IsActive,
-				"created_at": user.CreatedAt,
-				"updated_at": user.UpdatedAt,
-			},
+			"user":  buildAuthUserPayload(userWithPermissions),
 		},
 	})
 }
@@ -205,8 +233,8 @@ func (s *AuthService) GetCurrentUser(c *gin.Context) {
 	}
 
 	// 获取用户信息
-	var user models.User
-	if err := s.db.Where("id = ?", claims.UserID).First(&user).Error; err != nil {
+	user, err := s.loadUserForResponse(claims.UserID)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"status":  "error",
 			"message": "Failed to get user info",
@@ -217,14 +245,7 @@ func (s *AuthService) GetCurrentUser(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"status": "success",
 		"data": gin.H{
-			"user": gin.H{
-				"id":        user.ID,
-				"username":  user.Username,
-				"email":     user.Email,
-				"full_name": user.FullName,
-				"is_active": user.IsActive,
-				"is_admin":  user.IsAdmin,
-			},
+			"user": buildAuthUserPayload(user),
 		},
 	})
 }

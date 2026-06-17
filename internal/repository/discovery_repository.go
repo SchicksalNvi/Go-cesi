@@ -89,6 +89,17 @@ func (r *discoveryRepository) CreateResult(result *models.DiscoveryResult) error
 	return nil
 }
 
+// CreateResults batch-inserts discovery results to avoid one INSERT per probed IP.
+func (r *discoveryRepository) CreateResults(results []*models.DiscoveryResult) error {
+	if len(results) == 0 {
+		return nil
+	}
+	if err := r.db.CreateInBatches(results, 100).Error; err != nil {
+		return errors.NewDatabaseError("create discovery results", err)
+	}
+	return nil
+}
+
 // GetResultsByTaskID retrieves all results for a given task ID, ordered by creation time.
 func (r *discoveryRepository) GetResultsByTaskID(taskID uint) ([]*models.DiscoveryResult, error) {
 	var results []*models.DiscoveryResult

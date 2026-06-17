@@ -23,6 +23,7 @@ type BackupRecord struct {
 	FileSize    int64          `json:"file_size"`
 	BackupType  string         `gorm:"size:50;not null" json:"backup_type"`     // full, incremental, config_only
 	Status      string         `gorm:"size:50;default:'pending'" json:"status"` // pending, running, completed, failed
+	ErrorMsg    string         `gorm:"size:1000" json:"error_msg"`
 	CreatedBy   string         `gorm:"size:50;not null" json:"created_by"`
 	CreatedAt   time.Time      `json:"created_at"`
 	CompletedAt *time.Time     `json:"completed_at"`

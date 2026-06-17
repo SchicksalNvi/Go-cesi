@@ -129,6 +129,13 @@ func (r *mockDiscoveryRepository) CreateResult(result *models.DiscoveryResult) e
 	return r.db.Create(result).Error
 }
 
+func (r *mockDiscoveryRepository) CreateResults(results []*models.DiscoveryResult) error {
+	if len(results) == 0 {
+		return nil
+	}
+	return r.db.CreateInBatches(results, 100).Error
+}
+
 func (r *mockDiscoveryRepository) GetResultsByTaskID(taskID uint) ([]*models.DiscoveryResult, error) {
 	var results []*models.DiscoveryResult
 	err := r.db.Where("task_id = ?", taskID).Find(&results).Error

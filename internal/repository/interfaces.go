@@ -60,6 +60,7 @@ type DiscoveryRepository interface {
 
 	// Result operations
 	CreateResult(result *models.DiscoveryResult) error
+	CreateResults(results []*models.DiscoveryResult) error
 	GetResultsByTaskID(taskID uint) ([]*models.DiscoveryResult, error)
 }
 

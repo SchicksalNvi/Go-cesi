@@ -34,35 +34,56 @@ type WebSocketConfig struct {
 }
 
 // globalAllowedOrigins 全局配置的允许来源（从 config.toml 加载）
-var globalAllowedOrigins []string
+var (
+	globalAllowedOrigins []string
+	allowedOriginsCache  []string // 解析后的来源缓存，避免每次握手重复解析
+	allowedOriginsMu     sync.RWMutex
+)
 
 // SetAllowedOrigins 设置全局允许的来源（从配置文件加载时调用）
 func SetAllowedOrigins(origins []string) {
+	allowedOriginsMu.Lock()
 	globalAllowedOrigins = origins
+	allowedOriginsCache = nil // 失效缓存，下次解析时重建
+	allowedOriginsMu.Unlock()
 }
 
-// GetDefaultWebSocketConfig 获取默认WebSocket配置
-func GetDefaultWebSocketConfig() *WebSocketConfig {
-	// 优先级：config.toml > 环境变量 > 默认值
-	allowedOrigins := globalAllowedOrigins
+// resolveAllowedOrigins 解析允许的来源（config.toml > 环境变量 > 默认值），结果缓存。
+func resolveAllowedOrigins() []string {
+	allowedOriginsMu.RLock()
+	if allowedOriginsCache != nil {
+		cached := allowedOriginsCache
+		allowedOriginsMu.RUnlock()
+		return cached
+	}
+	allowedOriginsMu.RUnlock()
 
-	// 如果配置文件未设置，尝试环境变量
-	if len(allowedOrigins) == 0 {
-		if origins := os.Getenv("WEBSOCKET_ALLOWED_ORIGINS"); origins != "" {
-			allowedOrigins = strings.Split(origins, ",")
-		}
+	allowedOriginsMu.Lock()
+	defer allowedOriginsMu.Unlock()
+	if allowedOriginsCache != nil {
+		return allowedOriginsCache
 	}
 
-	// 如果都未设置，使用默认值
-	if len(allowedOrigins) == 0 {
-		allowedOrigins = []string{
+	origins := globalAllowedOrigins
+	if len(origins) == 0 {
+		if env := os.Getenv("WEBSOCKET_ALLOWED_ORIGINS"); env != "" {
+			origins = strings.Split(env, ",")
+		}
+	}
+	if len(origins) == 0 {
+		origins = []string{
 			"http://localhost:3000",
 			"http://localhost:8081",
 			"http://127.0.0.1:3000",
 			"http://127.0.0.1:8081",
 		}
 	}
+	allowedOriginsCache = origins
+	return origins
+}
 
+// GetDefaultWebSocketConfig 获取默认WebSocket配置
+func GetDefaultWebSocketConfig() *WebSocketConfig {
 	return &WebSocketConfig{
 		MaxConnections:    500,              // Support up to 500 connections by default
 		RateLimit:         10.0,             // 每秒10条消息
@@ -70,7 +91,7 @@ func GetDefaultWebSocketConfig() *WebSocketConfig {
 		HeartbeatInterval: 30 * time.Second, // 30秒心跳
 		ReadTimeout:       60 * time.Second, // 60秒读取超时
 		WriteTimeout:      10 * time.Second, // 10秒写入超时
-		AllowedOrigins:    allowedOrigins,
+		AllowedOrigins:    resolveAllowedOrigins(),
 		MaxMessageSize:    1024, // 1KB最大消息大小
 		MaxViolations:     5,    // 最大5次违规
 	}
@@ -79,9 +100,8 @@ func GetDefaultWebSocketConfig() *WebSocketConfig {
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		origin := r.Header.Get("Origin")
-		config := GetDefaultWebSocketConfig()
 
-		for _, allowed := range config.AllowedOrigins {
+		for _, allowed := range resolveAllowedOrigins() {
 			if origin == allowed {
 				return true
 			}
@@ -188,26 +208,7 @@ type SystemStatsMessage struct {
 }
 
 func NewHub(service *supervisor.SupervisorService) *Hub {
-	ctx, cancel := context.WithCancel(context.Background())
-
-	hub := &Hub{
-		clients:         make(map[*Client]bool),
-		broadcast:       make(chan []byte, 256),
-		register:        make(chan *Client),
-		unregister:      make(chan *Client),
-		cleanup:         make(chan *Client, 100), // Buffered cleanup channel
-		service:         service,
-		config:          GetDefaultWebSocketConfig(),
-		ctx:             ctx,
-		cancel:          cancel,
-		refreshInterval: 5 * time.Second, // 默认 5 秒
-		refreshStop:     make(chan struct{}),
-		logOffsets:      make(map[string]int),
-	}
-
-	// Pre-add WaitGroup count for background goroutines
-	hub.wg.Add(3) // heartbeat, cleanup, log streaming
-	return hub
+	return NewHubWithConfig(service, GetDefaultWebSocketConfig())
 }
 
 // NewHubWithConfig 使用自定义配置创建Hub

@@ -13,10 +13,32 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 	"superview/internal/database"
+	"superview/internal/logger"
 	"superview/internal/models"
 	"gorm.io/gorm"
 )
+
+// dataJobSlots 限制并发的导出/备份后台任务数，防止无界 goroutine 耗尽内存/磁盘/DB 连接。
+var dataJobSlots = make(chan struct{}, 2)
+
+// runDataJob 在受限并发的后台 goroutine 中运行任务，并从 panic 中恢复。
+func runDataJob(name, id string, fn func()) {
+	go func() {
+		dataJobSlots <- struct{}{}
+		defer func() {
+			<-dataJobSlots
+			if r := recover(); r != nil {
+				logger.Error("data management job panicked",
+					zap.String("job", name),
+					zap.String("id", id),
+					zap.Any("panic", r))
+			}
+		}()
+		fn()
+	}()
+}
 
 // DataManagementService 数据管理服务
 type DataManagementService struct {
@@ -28,6 +50,35 @@ func NewDataManagementService() *DataManagementService {
 	return &DataManagementService{
 		DB: database.DB,
 	}
+}
+
+// applyUpdates 应用 GORM 更新并在失败时记录日志（避免静默吞掉状态更新错误）。
+func (s *DataManagementService) applyUpdates(record interface{}, updates map[string]interface{}, ctx string) {
+	if err := s.DB.Model(record).Updates(updates).Error; err != nil {
+		logger.Error("failed to update record",
+			zap.String("ctx", ctx),
+			zap.Error(err))
+	}
+}
+
+// CreateImportRecord 创建导入记录
+func (s *DataManagementService) CreateImportRecord(importType, sourceFile string, fileSize int64, createdBy string) (*models.DataImportRecord, error) {
+	record := &models.DataImportRecord{
+		ID:         uuid.New().String(),
+		Name:       fmt.Sprintf("%s_import_%s", importType, time.Now().Format("20060102_150405")),
+		ImportType: importType,
+		SourceFile: sourceFile,
+		FileSize:   fileSize,
+		Status:     models.StatusPending,
+		CreatedBy:  createdBy,
+		CreatedAt:  time.Now(),
+	}
+
+	if err := s.DB.Create(record).Error; err != nil {
+		return nil, fmt.Errorf("failed to create import record: %v", err)
+	}
+
+	return record, nil
 }
 
 // ExportData 导出数据
@@ -47,8 +98,8 @@ func (s *DataManagementService) ExportData(exportType, format, createdBy string)
 		return nil, fmt.Errorf("failed to create export record: %v", err)
 	}
 
-	// 异步执行导出
-	go s.performExport(exportRecord)
+	// 异步执行导出（受限并发 + panic 恢复）
+	runDataJob("export", exportRecord.ID, func() { s.performExport(exportRecord) })
 
 	return exportRecord, nil
 }
@@ -56,9 +107,9 @@ func (s *DataManagementService) ExportData(exportType, format, createdBy string)
 // performExport 执行数据导出
 func (s *DataManagementService) performExport(record *models.DataExportRecord) {
 	// 更新状态为运行中
-	s.DB.Model(record).Updates(map[string]interface{}{
+	s.applyUpdates(record, map[string]interface{}{
 		"status": models.StatusRunning,
-	})
+	}, "performExport:running")
 
 	// 创建导出目录
 	exportDir := "data/exports"
@@ -104,13 +155,13 @@ func (s *DataManagementService) performExport(record *models.DataExportRecord) {
 
 	// 更新导出记录
 	now := time.Now()
-	s.DB.Model(record).Updates(map[string]interface{}{
+	s.applyUpdates(record, map[string]interface{}{
 		"file_path":    filePath,
 		"file_size":    fileInfo.Size(),
 		"record_count": recordCount,
 		"status":       models.StatusCompleted,
 		"completed_at": &now,
-	})
+	}, "performExport:completed")
 }
 
 // exportUsers 导出用户数据
@@ -130,11 +181,18 @@ func (s *DataManagementService) exportUsers(filePath, format string) (int, error
 	}
 }
 
+// maxExportLogs 单次日志导出的最大条数上限。
+const maxExportLogs = 10000
+
 // exportLogs 导出日志数据
 func (s *DataManagementService) exportLogs(filePath, format string) (int, error) {
 	var logs []models.ActivityLog
-	if err := s.DB.Order("created_at DESC").Limit(10000).Find(&logs).Error; err != nil {
+	if err := s.DB.Order("created_at DESC").Limit(maxExportLogs).Find(&logs).Error; err != nil {
 		return 0, err
+	}
+	if len(logs) == maxExportLogs {
+		logger.Warn("activity log export truncated to limit; older logs not included",
+			zap.Int("limit", maxExportLogs))
 	}
 
 	switch format {
@@ -196,7 +254,11 @@ func (s *DataManagementService) exportAll(filePath, format string) (int, error) 
 
 	// 日志数据
 	var logs []models.ActivityLog
-	if err := s.DB.Order("created_at DESC").Limit(10000).Find(&logs).Error; err == nil {
+	if err := s.DB.Order("created_at DESC").Limit(maxExportLogs).Find(&logs).Error; err == nil {
+		if len(logs) == maxExportLogs {
+			logger.Warn("activity log export truncated to limit; older logs not included",
+				zap.Int("limit", maxExportLogs))
+		}
 		allData["logs"] = logs
 		totalRecords += len(logs)
 	}
@@ -372,7 +434,7 @@ func (s *DataManagementService) updateExportStatus(record *models.DataExportReco
 		now := time.Now()
 		updates["completed_at"] = &now
 	}
-	s.DB.Model(record).Updates(updates)
+	s.applyUpdates(record, updates, "updateExportStatus")
 }
 
 // GetExportRecords 获取导出记录列表
@@ -415,6 +477,58 @@ func (s *DataManagementService) DeleteExportRecord(id string) error {
 	return s.DB.Delete(&record).Error
 }
 
+// GetImportRecords 获取导入记录列表
+func (s *DataManagementService) GetImportRecords(page, pageSize int) ([]models.DataImportRecord, int64, error) {
+	var records []models.DataImportRecord
+	var total int64
+
+	query := s.DB.Model(&models.DataImportRecord{}).Preload("Creator")
+
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	offset := (page - 1) * pageSize
+	if err := query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&records).Error; err != nil {
+		return nil, 0, err
+	}
+
+	return records, total, nil
+}
+
+// UpdateImportStatus 更新导入状态
+func (s *DataManagementService) UpdateImportStatus(record *models.DataImportRecord, status string, totalRecords, successCount, failureCount int, errorMsg, validationLog string) error {
+	updates := map[string]interface{}{
+		"status":         status,
+		"total_records":  totalRecords,
+		"success_count":  successCount,
+		"failure_count":  failureCount,
+		"validation_log": validationLog,
+	}
+	if errorMsg != "" {
+		updates["error_msg"] = errorMsg
+	}
+	if status == models.StatusCompleted || status == models.StatusFailed || status == models.StatusPartial {
+		now := time.Now()
+		updates["completed_at"] = &now
+	}
+	return s.DB.Model(record).Updates(updates).Error
+}
+
+// DeleteImportRecord 删除导入记录
+func (s *DataManagementService) DeleteImportRecord(id string) error {
+	var record models.DataImportRecord
+	if err := s.DB.First(&record, "id = ?", id).Error; err != nil {
+		return err
+	}
+
+	if record.SourceFile != "" {
+		_ = os.Remove(record.SourceFile)
+	}
+
+	return s.DB.Delete(&record).Error
+}
+
 // CreateBackup 创建备份
 func (s *DataManagementService) CreateBackup(backupType, name, description, createdBy string) (*models.BackupRecord, error) {
 	backupRecord := &models.BackupRecord{
@@ -431,8 +545,8 @@ func (s *DataManagementService) CreateBackup(backupType, name, description, crea
 		return nil, fmt.Errorf("failed to create backup record: %v", err)
 	}
 
-	// 异步执行备份
-	go s.performBackup(backupRecord)
+	// 异步执行备份（受限并发 + panic 恢复）
+	runDataJob("backup", backupRecord.ID, func() { s.performBackup(backupRecord) })
 
 	return backupRecord, nil
 }
@@ -440,9 +554,9 @@ func (s *DataManagementService) CreateBackup(backupType, name, description, crea
 // performBackup 执行备份
 func (s *DataManagementService) performBackup(record *models.BackupRecord) {
 	// 更新状态为运行中
-	s.DB.Model(record).Updates(map[string]interface{}{
+	s.applyUpdates(record, map[string]interface{}{
 		"status": models.StatusRunning,
-	})
+	}, "performBackup:running")
 
 	// 创建备份目录
 	backupDir := "data/backups"
@@ -479,12 +593,12 @@ func (s *DataManagementService) performBackup(record *models.BackupRecord) {
 
 	// 更新备份记录
 	now := time.Now()
-	s.DB.Model(record).Updates(map[string]interface{}{
+	s.applyUpdates(record, map[string]interface{}{
 		"file_path":    backupFilePath,
 		"file_size":    fileInfo.Size(),
 		"status":       models.StatusCompleted,
 		"completed_at": &now,
-	})
+	}, "performBackup:completed")
 }
 
 // createFullBackup 创建完整备份
@@ -504,9 +618,9 @@ func (s *DataManagementService) createFullBackup(backupFilePath string) error {
 		return fmt.Errorf("failed to backup database: %v", err)
 	}
 
-	// 备份配置文件
-	if err := s.addFileToZip(zipWriter, "config.toml", "config.toml"); err != nil {
-		// 配置文件可能不存在，不作为错误处理
+	// 备份配置文件（不存在时忽略，其它 I/O 错误记录但不中断备份）
+	if err := s.addFileToZip(zipWriter, "config.toml", "config.toml"); err != nil && !os.IsNotExist(err) {
+		logger.Warn("failed to add config.toml to backup", zap.Error(err))
 	}
 
 	// 备份日志文件
@@ -584,7 +698,7 @@ func (s *DataManagementService) updateBackupStatus(record *models.BackupRecord, 
 		now := time.Now()
 		updates["completed_at"] = &now
 	}
-	s.DB.Model(record).Updates(updates)
+	s.applyUpdates(record, updates, "updateBackupStatus")
 }
 
 // GetBackupRecords 获取备份记录列表

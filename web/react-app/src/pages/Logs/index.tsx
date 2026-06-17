@@ -24,11 +24,14 @@ import { activityLogsAPI } from '../../api/activityLogs';
 import type { ActivityLog, ActivityLogsFilters, PaginationInfo } from '../../api/activityLogs';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { useStore } from '../../store';
+import { hasPermission, PERMISSIONS } from '@/utils/permissions';
 
 const { RangePicker } = DatePicker;
 
 const Logs: React.FC = () => {
   const { t, user } = useStore();
+  const canReadLogs = hasPermission(user, PERMISSIONS.logRead);
+  const canDeleteLogs = hasPermission(user, PERMISSIONS.logDelete);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,12 +51,15 @@ const Logs: React.FC = () => {
   });
 
   useEffect(() => {
+    if (!canReadLogs) {
+      return;
+    }
     loadLogs();
-  }, []);
+  }, [canReadLogs]);
 
   // Auto refresh (only on first page)
   useAutoRefresh(() => {
-    if (pagination.page === 1) {
+    if (canReadLogs && pagination.page === 1) {
       loadLogs();
     }
   });
@@ -264,6 +270,17 @@ const Logs: React.FC = () => {
       )
     : activityLogs;
 
+  if (!canReadLogs) {
+    return (
+      <Alert
+        message={t.common.error}
+        description={t.logs.loadLogsFailed}
+        type="error"
+        showIcon
+      />
+    );
+  }
+
   return (
     <div>
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -276,7 +293,7 @@ const Logs: React.FC = () => {
           >
             {t.common.export}
           </Button>
-          {user?.is_admin && (
+          {canDeleteLogs && (
             <Button
               danger
               icon={<DeleteOutlined />}

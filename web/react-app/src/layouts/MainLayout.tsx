@@ -13,11 +13,13 @@ import {
   MenuUnfoldOutlined,
   RadarChartOutlined,
   GlobalOutlined,
+  IdcardOutlined,
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import { useStore } from '@/store';
 import { SuperviewLogo } from '@/components/SuperviewLogo';
 import type { Language } from '@/i18n';
+import { hasPermission, PERMISSIONS } from '@/utils/permissions';
 
 const { Header, Sider, Content } = Layout;
 
@@ -26,13 +28,15 @@ export default function MainLayout() {
   const location = useLocation();
   const { user, logout, t, language, setLanguage } = useStore();
   const [collapsed, setCollapsed] = useState(false);
+  const canReadLogs = hasPermission(user, PERMISSIONS.logRead);
+  const canReadUsers = hasPermission(user, PERMISSIONS.userRead);
+  const canManageDiscovery = hasPermission(user, PERMISSIONS.systemManage);
 
   // Language switch handler
   const handleLanguageSwitch = () => {
     setLanguage(language === 'en' ? 'zh' : 'en');
   };
 
-  // Menu items - filter based on admin status
   const baseMenuItems: MenuProps['items'] = [
     {
       key: '/dashboard',
@@ -58,24 +62,30 @@ export default function MainLayout() {
       label: t.nav.processes,
       onClick: () => navigate('/processes'),
     },
-    {
-      key: '/discovery',
-      icon: <RadarChartOutlined />,
-      label: t.nav.discovery,
-      onClick: () => navigate('/discovery'),
-    },
-    {
-      key: '/logs',
-      icon: <FileTextOutlined />,
-      label: t.nav.logs,
-      onClick: () => navigate('/logs'),
-    },
-    {
-      key: '/users',
-      icon: <UserOutlined />,
-      label: t.nav.users,
-      onClick: () => navigate('/users'),
-    },
+    ...(canManageDiscovery
+      ? [{
+          key: '/discovery',
+          icon: <RadarChartOutlined />,
+          label: t.nav.discovery,
+          onClick: () => navigate('/discovery'),
+        }]
+      : []),
+    ...(canReadLogs
+      ? [{
+          key: '/logs',
+          icon: <FileTextOutlined />,
+          label: t.nav.logs,
+          onClick: () => navigate('/logs'),
+        }]
+      : []),
+    ...(canReadUsers
+      ? [{
+          key: '/users',
+          icon: <UserOutlined />,
+          label: t.nav.users,
+          onClick: () => navigate('/users'),
+        }]
+      : []),
   ];
 
   // Admin-only menu items
@@ -93,6 +103,25 @@ export default function MainLayout() {
   // User dropdown menu
   const userMenuItems: MenuProps['items'] = [
     {
+      key: 'profile',
+      icon: <IdcardOutlined />,
+      label: t.nav.profile,
+      onClick: () => navigate('/profile'),
+    },
+    ...(user?.is_admin
+      ? [
+          {
+            key: 'settings',
+            icon: <SettingOutlined />,
+            label: t.nav.settings,
+            onClick: () => navigate('/settings'),
+          },
+        ]
+      : []),
+    {
+      type: 'divider',
+    },
+    {
       key: 'logout',
       icon: <LogoutOutlined />,
       label: t.nav.logout,
@@ -103,8 +132,13 @@ export default function MainLayout() {
     },
   ];
 
-  // Get current selected key from location
-  const selectedKey = location.pathname;
+  const menuKeys = menuItems
+    .map((item) => ('key' in (item || {}) ? item?.key : undefined))
+    .filter((key): key is string => typeof key === 'string' && key.startsWith('/'));
+
+  const selectedKey = menuKeys.find(
+    (key) => location.pathname === key || location.pathname.startsWith(`${key}/`)
+  );
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -137,7 +171,7 @@ export default function MainLayout() {
         <Menu
           theme="dark"
           mode="inline"
-          selectedKeys={[selectedKey]}
+          selectedKeys={selectedKey ? [selectedKey] : []}
           items={menuItems}
         />
       </Sider>
@@ -179,7 +213,7 @@ export default function MainLayout() {
             <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
               <Space style={{ cursor: 'pointer' }}>
                 <Avatar icon={<UserOutlined />} />
-                <span>{user?.username || 'User'}</span>
+                <span>{user?.full_name || user?.username || 'User'}</span>
               </Space>
             </Dropdown>
           </Space>

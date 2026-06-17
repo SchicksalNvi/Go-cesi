@@ -19,6 +19,7 @@ import {
   Typography,
   Popconfirm,
   Alert,
+  Select,
 } from 'antd';
 import type { TabsProps } from 'antd';
 import {
@@ -32,12 +33,15 @@ import {
   ExclamationCircleOutlined,
   EyeOutlined,
   RadarChartOutlined,
+  LinkOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import { useNavigate } from 'react-router-dom';
 import {
   discoveryApi,
   DiscoveryTask,
   DiscoveryResult,
+  DiscoveryStatusType,
   StartDiscoveryRequest,
 } from '@/api/discovery';
 import { useWebSocket } from '@/hooks/useWebSocket';
@@ -96,12 +100,14 @@ const getErrorMessage = (error: any, fallback: string): string => {
 };
 
 export default function DiscoveryPage() {
+  const navigate = useNavigate();
   const { t } = useStore();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [tasks, setTasks] = useState<DiscoveryTask[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
   const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0 });
+  const [statusFilter, setStatusFilter] = useState<DiscoveryStatusType | ''>('');
   const [activeTask, setActiveTask] = useState<DiscoveryTask | null>(null);
   const [activeResults, setActiveResults] = useState<DiscoveryResult[]>([]);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
@@ -114,7 +120,7 @@ export default function DiscoveryPage() {
   // Load tasks on mount
   useEffect(() => {
     loadTasks();
-  }, [pagination.page, pagination.limit]);
+  }, [pagination.page, pagination.limit, statusFilter]);
 
   // WebSocket for real-time updates
   useWebSocket({
@@ -132,7 +138,7 @@ export default function DiscoveryPage() {
       } else if (msg.type === 'node_discovered') {
         const node = msg.data as DiscoveredNode;
         setRecentlyDiscovered(prev => [node, ...prev.slice(0, 9)]);
-        message.success(`Discovered node: ${node.node_name}`);
+        message.success(t.discovery.nodeDiscovered.replace('{node}', node.node_name));
       } else if (msg.type === 'discovery_completed') {
         const data = msg.data as { task_id: number; status: string };
         setTasks(prev => prev.map(t => 
@@ -141,20 +147,24 @@ export default function DiscoveryPage() {
         if (activeTask?.id === data.task_id) {
           loadTaskDetail(data.task_id);
         }
-        message.info(`Discovery task ${data.task_id} completed`);
+        message.info(t.discovery.taskCompleted.replace('{id}', String(data.task_id)));
       }
-    }, [activeTask]),
+    }, [activeTask, t.discovery.nodeDiscovered, t.discovery.taskCompleted]),
   });
 
   const loadTasks = async () => {
     setTasksLoading(true);
     try {
-      const response = await discoveryApi.getTasks({ page: pagination.page, limit: pagination.limit });
+      const response = await discoveryApi.getTasks({
+        page: pagination.page,
+        limit: pagination.limit,
+        status: statusFilter || undefined,
+      });
       setTasks(response.tasks || []);
       setPagination(prev => ({ ...prev, total: response.total }));
     } catch (error) {
       console.error('Failed to load tasks:', error);
-      message.error('Failed to load discovery tasks');
+      message.error(t.discovery.loadTasksFailed);
     } finally {
       setTasksLoading(false);
     }
@@ -168,7 +178,7 @@ export default function DiscoveryPage() {
       setActiveResults(response.results || []);
     } catch (error) {
       console.error('Failed to load task detail:', error);
-      message.error('Failed to load task details');
+      message.error(t.discovery.loadTaskDetailsFailed);
     } finally {
       setDetailLoading(false);
     }
@@ -181,7 +191,11 @@ export default function DiscoveryPage() {
       return;
     }
     if (!CIDR_REGEX.test(cidr)) {
-      setCidrValidation({ valid: false, count: 0, error: 'Invalid CIDR format (e.g., 192.168.1.0/24)' });
+      setCidrValidation({
+        valid: false,
+        count: 0,
+        error: t.discovery.invalidCidrFormat,
+      });
       return;
     }
     setValidatingCidr(true);
@@ -189,7 +203,7 @@ export default function DiscoveryPage() {
       const response = await discoveryApi.validateCIDR(cidr);
       setCidrValidation({ valid: response.valid, count: response.count });
     } catch (error: any) {
-      const errorMsg = getErrorMessage(error, 'Failed to validate CIDR');
+      const errorMsg = getErrorMessage(error, t.discovery.validateCidrFailed);
       setCidrValidation({ valid: false, count: 0, error: errorMsg });
     } finally {
       setValidatingCidr(false);
@@ -199,20 +213,20 @@ export default function DiscoveryPage() {
   // Start discovery
   const handleStartDiscovery = async (values: StartDiscoveryRequest) => {
     if (!cidrValidation?.valid) {
-      message.error('Please enter a valid CIDR range');
+      message.error(t.discovery.enterValidCidr);
       return;
     }
     setLoading(true);
     try {
       await discoveryApi.startDiscovery(values);
-      message.success(`Discovery started for ${values.cidr}`);
+      message.success(t.discovery.startedFor.replace('{cidr}', values.cidr));
       form.resetFields();
       setCidrValidation(null);
       setRecentlyDiscovered([]);
       setActiveTab('history');
       loadTasks();
     } catch (error: any) {
-      const errorMsg = getErrorMessage(error, 'Failed to start discovery');
+      const errorMsg = getErrorMessage(error, t.discovery.startFailed);
       message.error(errorMsg);
     } finally {
       setLoading(false);
@@ -223,10 +237,10 @@ export default function DiscoveryPage() {
   const handleCancelTask = async (taskId: number) => {
     try {
       await discoveryApi.cancelTask(taskId);
-      message.success('Task cancelled');
+      message.success(t.discovery.taskCancelled);
       loadTasks();
     } catch (error) {
-      message.error('Failed to cancel task');
+      message.error(t.discovery.cancelTaskFailed);
     }
   };
 
@@ -234,10 +248,10 @@ export default function DiscoveryPage() {
   const handleDeleteTask = async (taskId: number) => {
     try {
       await discoveryApi.deleteTask(taskId);
-      message.success('Task deleted');
+      message.success(t.discovery.taskDeleted);
       loadTasks();
     } catch (error) {
-      message.error('Failed to delete task');
+      message.error(t.discovery.deleteTaskFailed);
     }
   };
 
@@ -280,7 +294,7 @@ export default function DiscoveryPage() {
       ),
     },
     {
-      title: 'Progress',
+      title: t.discovery.progress,
       key: 'progress',
       width: 200,
       render: (_, record) => {
@@ -289,7 +303,10 @@ export default function DiscoveryPage() {
           <Space direction="vertical" size={0} style={{ width: '100%' }}>
             <Progress percent={percent} size="small" status={record.status === 'running' ? 'active' : undefined} />
             <Text type="secondary" style={{ fontSize: 12 }}>
-              {record.scanned_ips}/{record.total_ips} IPs • {record.found_nodes} found
+              {t.discovery.progressSummary
+                .replace('{scanned}', String(record.scanned_ips))
+                .replace('{total}', String(record.total_ips))
+                .replace('{found}', String(record.found_nodes))}
             </Text>
           </Space>
         );
@@ -301,6 +318,20 @@ export default function DiscoveryPage() {
       key: 'created_at',
       width: 160,
       render: (date: string) => new Date(date).toLocaleString(),
+    },
+    {
+      title: t.discovery.completedAt,
+      dataIndex: 'completed_at',
+      key: 'completed_at',
+      width: 160,
+      render: (date?: string) => (date ? new Date(date).toLocaleString() : '-'),
+    },
+    {
+      title: t.discovery.errorMessage,
+      dataIndex: 'error_msg',
+      key: 'error_msg',
+      ellipsis: true,
+      render: (errorMsg?: string) => errorMsg || '-',
     },
     {
       title: t.common.actions,
@@ -317,7 +348,7 @@ export default function DiscoveryPage() {
             </Tooltip>
           )}
           {['completed', 'cancelled', 'failed'].includes(record.status) && (
-            <Popconfirm title={t.common.confirm + '?'} onConfirm={() => handleDeleteTask(record.id)}>
+            <Popconfirm title={t.discovery.confirmDeleteTask} onConfirm={() => handleDeleteTask(record.id)}>
               <Tooltip title={t.common.delete}>
                 <Button type="text" danger icon={<DeleteOutlined />} />
               </Tooltip>
@@ -337,13 +368,13 @@ export default function DiscoveryPage() {
       render: (ip: string) => <Text code>{ip}</Text>,
     },
     {
-      title: 'Port',
+      title: t.nodes.nodePort,
       dataIndex: 'port',
       key: 'port',
       width: 80,
     },
     {
-      title: 'Status',
+      title: t.common.status,
       dataIndex: 'status',
       key: 'status',
       width: 160,
@@ -366,23 +397,30 @@ export default function DiscoveryPage() {
       },
     },
     {
-      title: 'Node Name',
+      title: t.nodes.nodeName,
       dataIndex: 'node_name',
       key: 'node_name',
-      render: (name: string) => name || '-',
+      render: (name: string, record: DiscoveryResult) =>
+        name && record.status === 'success' ? (
+          <Button type="link" icon={<LinkOutlined />} onClick={() => navigate(`/nodes/${name}`)}>
+            {name}
+          </Button>
+        ) : (
+          name || '-'
+        ),
     },
     {
-      title: 'Version',
+      title: t.discovery.version,
       dataIndex: 'version',
       key: 'version',
       render: (version: string) => version || '-',
     },
     {
-      title: 'Duration',
+      title: t.discovery.duration,
       dataIndex: 'duration_ms',
       key: 'duration_ms',
       width: 100,
-      render: (ms: number) => `${ms}ms`,
+      render: (ms: number) => t.discovery.durationMs.replace('{ms}', String(ms)),
     },
   ];
 
@@ -399,20 +437,22 @@ export default function DiscoveryPage() {
           <Form.Item
             name="cidr"
             label={t.discovery.cidrRange}
-            rules={[{ required: true, message: 'Please enter a CIDR range' }]}
+            rules={[{ required: true, message: t.discovery.enterCidrRange }]}
             help={
               cidrValidation ? (
                 cidrValidation.valid ? (
-                  <Text type="success">Valid CIDR: {cidrValidation.count} IP addresses</Text>
+                  <Text type="success">
+                    {t.discovery.validCidr.replace('{count}', String(cidrValidation.count))}
+                  </Text>
                 ) : (
-                  <Text type="danger">{cidrValidation.error || 'Invalid CIDR'}</Text>
+                  <Text type="danger">{cidrValidation.error || t.discovery.invalidCidr}</Text>
                 )
               ) : undefined
             }
             validateStatus={cidrValidation ? (cidrValidation.valid ? 'success' : 'error') : undefined}
           >
             <Input
-              placeholder="e.g., 192.168.1.0/24"
+              placeholder={t.discovery.cidrPlaceholder}
               onChange={(e) => validateCidr(e.target.value)}
               suffix={validatingCidr ? <Spin size="small" /> : <span />}
             />
@@ -422,7 +462,7 @@ export default function DiscoveryPage() {
             <Form.Item
               name="port"
               label={t.nodes.nodePort}
-              rules={[{ required: true, message: 'Please enter port' }]}
+              rules={[{ required: true, message: t.discovery.enterPort }]}
               style={{ width: 150 }}
             >
               <InputNumber min={1} max={65535} style={{ width: '100%' }} />
@@ -431,16 +471,16 @@ export default function DiscoveryPage() {
             <Form.Item
               name="username"
               label={t.users.username}
-              rules={[{ required: true, message: 'Please enter username' }]}
+              rules={[{ required: true, message: t.discovery.enterUsername }]}
               style={{ width: 200 }}
             >
-              <Input placeholder="admin" />
+              <Input placeholder={t.discovery.usernamePlaceholder} />
             </Form.Item>
 
             <Form.Item
               name="password"
               label={t.users.password}
-              rules={[{ required: true, message: 'Please enter password' }]}
+              rules={[{ required: true, message: t.discovery.enterPassword }]}
               style={{ width: 200 }}
             >
               <Input.Password placeholder={t.users.password} />
@@ -448,11 +488,11 @@ export default function DiscoveryPage() {
           </Space>
 
           <Space size="large">
-            <Form.Item name="timeout_seconds" label="Timeout (seconds)" style={{ width: 150 }}>
+            <Form.Item name="timeout_seconds" label={t.discovery.timeoutSeconds} style={{ width: 150 }}>
               <InputNumber min={1} max={30} style={{ width: '100%' }} />
             </Form.Item>
 
-            <Form.Item name="max_workers" label="Max Workers" style={{ width: 150 }}>
+            <Form.Item name="max_workers" label={t.discovery.maxWorkers} style={{ width: 150 }}>
               <InputNumber min={1} max={200} style={{ width: '100%' }} />
             </Form.Item>
           </Space>
@@ -484,6 +524,9 @@ export default function DiscoveryPage() {
                     <Text strong>{node.node_name}</Text>
                     <Text type="secondary">({node.ip}:{node.port})</Text>
                     <Tag color="blue">v{node.version}</Tag>
+                    <Button type="link" size="small" onClick={() => navigate(`/nodes/${node.node_name}`)}>
+                      {t.nodes.viewDetails}
+                    </Button>
                   </Space>
                 }
                 showIcon={false}
@@ -500,9 +543,29 @@ export default function DiscoveryPage() {
     <Card
       title={t.discovery.scanHistory}
       extra={
-        <Button icon={<ReloadOutlined />} onClick={loadTasks} loading={tasksLoading}>
-          {t.common.refresh}
-        </Button>
+        <Space>
+          <Select
+            value={statusFilter || undefined}
+            placeholder={t.discovery.filterByStatus}
+            allowClear
+            style={{ width: 180 }}
+            onChange={(value) => {
+              setPagination((prev) => ({ ...prev, page: 1 }));
+              setStatusFilter(value || '');
+            }}
+            options={[
+              { label: t.common.all, value: '' },
+              { label: t.discovery.statusPending, value: 'pending' },
+              { label: t.discovery.statusRunning, value: 'running' },
+              { label: t.discovery.statusCompleted, value: 'completed' },
+              { label: t.discovery.statusCancelled, value: 'cancelled' },
+              { label: t.discovery.statusFailed, value: 'failed' },
+            ]}
+          />
+          <Button icon={<ReloadOutlined />} onClick={loadTasks} loading={tasksLoading}>
+            {t.common.refresh}
+          </Button>
+        </Space>
       }
     >
       <Table
@@ -553,7 +616,7 @@ export default function DiscoveryPage() {
 
       {/* Task Detail Modal */}
       <Modal
-        title={`Discovery Task #${activeTask?.id}`}
+        title={t.discovery.taskDetails.replace('{id}', String(activeTask?.id || ''))}
         open={detailModalVisible}
         onCancel={() => setDetailModalVisible(false)}
         footer={null}
@@ -568,17 +631,17 @@ export default function DiscoveryPage() {
             <Card size="small" style={{ marginBottom: 16 }}>
               <Space size="large" wrap>
                 <div>
-                  <Text type="secondary">CIDR:</Text> <Text code>{activeTask.cidr}</Text>
+                  <Text type="secondary">{t.discovery.cidrRange}:</Text> <Text code>{activeTask.cidr}</Text>
                 </div>
                 <div>
-                  <Text type="secondary">Port:</Text> <Text>{activeTask.port}</Text>
+                  <Text type="secondary">{t.nodes.nodePort}:</Text> <Text>{activeTask.port}</Text>
                 </div>
                 <div>
-                  <Text type="secondary">Status:</Text>{' '}
+                  <Text type="secondary">{t.common.status}:</Text>{' '}
                   <Tag color={statusColors[activeTask.status]}>{activeTask.status.toUpperCase()}</Tag>
                 </div>
                 <div>
-                  <Text type="secondary">Created by:</Text> <Text>{activeTask.created_by}</Text>
+                  <Text type="secondary">{t.discovery.createdBy}:</Text> <Text>{activeTask.created_by}</Text>
                 </div>
               </Space>
             </Card>
@@ -590,13 +653,13 @@ export default function DiscoveryPage() {
               />
               <Space size="large" style={{ marginTop: 8 }}>
                 <Text>
-                  <Text type="secondary">Scanned:</Text> {activeTask.scanned_ips}/{activeTask.total_ips}
+                  <Text type="secondary">{t.discovery.scanned}:</Text> {activeTask.scanned_ips}/{activeTask.total_ips}
                 </Text>
                 <Text type="success">
-                  <CheckCircleOutlined /> Found: {activeTask.found_nodes}
+                  <CheckCircleOutlined /> {t.discovery.found}: {activeTask.found_nodes}
                 </Text>
                 <Text type="danger">
-                  <CloseCircleOutlined /> Failed: {activeTask.failed_ips}
+                  <CloseCircleOutlined /> {t.discovery.failed}: {activeTask.failed_ips}
                 </Text>
               </Space>
             </Card>
@@ -608,7 +671,7 @@ export default function DiscoveryPage() {
               size="small"
               pagination={{ pageSize: 10 }}
               locale={{
-                emptyText: <Empty description="No results yet" />,
+                emptyText: <Empty description={t.discovery.noResultsYet} />,
               }}
             />
           </div>

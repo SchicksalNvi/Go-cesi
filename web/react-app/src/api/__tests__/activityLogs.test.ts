@@ -241,7 +241,7 @@ describe('ActivityLogsAPI', () => {
       const result = await activityLogsAPI.exportLogs();
 
       expect(global.fetch).toHaveBeenCalledWith(
-        '/activity-logs/export',
+        '/api/activity-logs/export',
         expect.objectContaining({
           method: 'GET',
           headers: {
@@ -268,7 +268,7 @@ describe('ActivityLogsAPI', () => {
       const result = await activityLogsAPI.exportLogs(filters);
 
       expect(global.fetch).toHaveBeenCalledWith(
-        '/activity-logs/export?level=ERROR&action=stop_process&start_time=2024-01-01T00:00:00Z',
+        '/api/activity-logs/export?level=ERROR&action=stop_process&start_time=2024-01-01T00:00:00Z',
         expect.objectContaining({
           method: 'GET',
           headers: {
@@ -283,9 +283,10 @@ describe('ActivityLogsAPI', () => {
       (global.fetch as jest.Mock).mockResolvedValue({
         ok: false,
         status: 500,
+        json: () => Promise.resolve({ message: 'Backend export failed' }),
       });
 
-      await expect(activityLogsAPI.exportLogs()).rejects.toThrow('Failed to export logs');
+      await expect(activityLogsAPI.exportLogs()).rejects.toThrow('Backend export failed');
     });
 
     it('should handle network errors correctly', async () => {

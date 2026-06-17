@@ -1,9 +1,9 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
-	"time"
 
 	"superview/internal/services"
 	"superview/internal/validation"
@@ -38,29 +38,6 @@ func (a *ActivityLogsAPI) GetActivityLogs(c *gin.Context) {
 		return
 	}
 
-	// 验证时间范围参数
-	startTimeStr := c.Query("start_time")
-	endTimeStr := c.Query("end_time")
-	var startTime, endTime int64
-	if startTimeStr != "" {
-		var err error
-		startTime, err = strconv.ParseInt(startTimeStr, 10, 64)
-		if err != nil {
-			validator.AddError("start_time", "must be a valid timestamp")
-		} else {
-			validator.ValidateRange("start_time", int(startTime), 0, int(time.Now().Unix()))
-		}
-	}
-	if endTimeStr != "" {
-		var err error
-		endTime, err = strconv.ParseInt(endTimeStr, 10, 64)
-		if err != nil {
-			validator.AddError("end_time", "must be a valid timestamp")
-		} else {
-			validator.ValidateRange("end_time", int(endTime), 0, int(time.Now().Unix()))
-		}
-	}
-
 	// 获取过滤参数
 	filters := map[string]interface{}{
 		"level":      c.Query("level"),
@@ -73,6 +50,13 @@ func (a *ActivityLogsAPI) GetActivityLogs(c *gin.Context) {
 
 	logs, total, err := a.service.GetActivityLogs(page, pageSize, filters)
 	if err != nil {
+		if errors.Is(err, services.ErrInvalidActivityLogTimeFilter) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"status":  "error",
+				"message": err.Error(),
+			})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"status":  "error",
 			"message": "Failed to get activity logs: " + err.Error(),
@@ -104,7 +88,6 @@ func (a *ActivityLogsAPI) GetActivityLogs(c *gin.Context) {
 // GetRecentLogs 获取最近的日志
 func (a *ActivityLogsAPI) GetRecentLogs(c *gin.Context) {
 	validator := validation.NewValidator()
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
 
 	// 验证限制参数
 	limitStr := c.DefaultQuery("limit", "20")
@@ -143,7 +126,6 @@ func (a *ActivityLogsAPI) GetRecentLogs(c *gin.Context) {
 // GetLogStatistics 获取日志统计信息
 func (a *ActivityLogsAPI) GetLogStatistics(c *gin.Context) {
 	validator := validation.NewValidator()
-	days, _ := strconv.Atoi(c.DefaultQuery("days", "7"))
 
 	// 验证天数参数
 	daysStr := c.DefaultQuery("days", "7")
@@ -263,6 +245,13 @@ func (a *ActivityLogsAPI) DeleteLogs(c *gin.Context) {
 	// 执行删除
 	deleted, err := a.service.DeleteLogs(filters)
 	if err != nil {
+		if errors.Is(err, services.ErrInvalidActivityLogTimeFilter) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"status":  "error",
+				"message": err.Error(),
+			})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"status":  "error",
 			"message": "Failed to delete logs: " + err.Error(),
@@ -300,6 +289,13 @@ func (a *ActivityLogsAPI) ExportLogs(c *gin.Context) {
 
 	csvData, err := a.service.ExportLogs(filters)
 	if err != nil {
+		if errors.Is(err, services.ErrInvalidActivityLogTimeFilter) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"status":  "error",
+				"message": err.Error(),
+			})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"status":  "error",
 			"message": "Failed to export logs: " + err.Error(),

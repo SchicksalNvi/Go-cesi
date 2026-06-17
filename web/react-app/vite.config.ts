@@ -26,6 +26,10 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
+    // `antd` is intentionally isolated into a long-lived vendor chunk.
+    // Raising the warning threshold avoids noisy false positives without
+    // changing runtime chunk behavior.
+    chunkSizeWarningLimit: 1200,
     rollupOptions: {
       output: {
         manualChunks: {

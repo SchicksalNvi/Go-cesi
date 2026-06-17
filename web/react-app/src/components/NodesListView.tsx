@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { Suspense, lazy, useMemo, useState } from 'react';
 import { Table, Tag, Button, Space, Tooltip, Typography, Alert } from 'antd';
 import type { ColumnsType, TableProps } from 'antd/es/table';
 import {
@@ -6,8 +6,9 @@ import {
   ReloadOutlined,
 } from '@ant-design/icons';
 import { Node } from '@/types';
-import { VirtualizedNodesTable } from './VirtualizedNodesTable';
 import { useStore } from '@/store';
+
+const VirtualizedNodesTable = lazy(() => import('./VirtualizedNodesTable'));
 
 const { Text } = Typography;
 
@@ -67,16 +68,18 @@ export const NodesListView: React.FC<NodesListViewProps> = ({
               }
             />
           )}
-          <VirtualizedNodesTable
-            nodes={nodes}
-            loading={loading}
-            selectedNodes={selectedNodes}
-            onSelectionChange={onSelectionChange}
-            onNodeClick={onNodeClick}
-            onRefreshNode={onRefreshNode}
-            searchQuery={searchQuery}
-            height={600}
-          />
+          <Suspense fallback={<div style={{ padding: 24, textAlign: 'center' }}>Loading table...</div>}>
+            <VirtualizedNodesTable
+              nodes={nodes}
+              loading={loading}
+              selectedNodes={selectedNodes}
+              onSelectionChange={onSelectionChange}
+              onNodeClick={onNodeClick}
+              onRefreshNode={onRefreshNode}
+              searchQuery={searchQuery}
+              height={600}
+            />
+          </Suspense>
         </div>
       );
     } catch (error) {

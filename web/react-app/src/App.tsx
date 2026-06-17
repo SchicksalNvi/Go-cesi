@@ -5,6 +5,7 @@ import { useStore } from '@/store';
 import { authApi } from '@/api/auth';
 import { settingsApi } from '@/api/settings';
 import MainLayout from '@/layouts/MainLayout';
+import { hasAnyPermission, PERMISSIONS } from '@/utils/permissions';
 
 const Login = lazy(() => import('@/pages/Login'));
 const Dashboard = lazy(() => import('@/pages/Dashboard'));
@@ -17,6 +18,7 @@ const UserList = lazy(() => import('@/pages/Users'));
 const LogList = lazy(() => import('@/pages/Logs'));
 const Settings = lazy(() => import('@/pages/Settings'));
 const DiscoveryPage = lazy(() => import('@/pages/Discovery'));
+const ProfilePage = lazy(() => import('@/pages/Profile'));
 
 // Protected Route Component
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -38,7 +40,7 @@ function RouteFallback() {
 }
 
 function App() {
-  const { isAuthenticated, setUser, logout, setWebsocketEnabled } = useStore();
+  const { isAuthenticated, user, setUser, logout, setWebsocketEnabled } = useStore();
 
   // Listen for logout events from API interceptor
   useEffect(() => {
@@ -64,10 +66,17 @@ function App() {
       }
     };
 
-    if (isAuthenticated) {
-      loadSystemSettings();
+    if (!isAuthenticated) {
+      return;
     }
-  }, [isAuthenticated, setWebsocketEnabled]);
+
+    if (!hasAnyPermission(user, [PERMISSIONS.systemConfig, PERMISSIONS.systemManage])) {
+      setWebsocketEnabled(true);
+      return;
+    }
+
+    loadSystemSettings();
+  }, [isAuthenticated, user, setWebsocketEnabled]);
 
   // Validate token on mount only if we have both token and user
   useEffect(() => {
@@ -123,6 +132,7 @@ function App() {
           <Route path="users" element={<UserList />} />
           <Route path="logs" element={<LogList />} />
           <Route path="discovery" element={<DiscoveryPage />} />
+          <Route path="profile" element={<ProfilePage />} />
           <Route path="settings" element={<Settings />} />
         </Route>
         

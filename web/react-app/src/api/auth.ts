@@ -11,6 +11,11 @@ export interface LoginResponse {
   user: User;
 }
 
+export interface ChangeOwnPasswordRequest {
+  old_password: string;
+  new_password: string;
+}
+
 export const authApi = {
   // Login
   login: (data: LoginRequest) =>
@@ -22,6 +27,13 @@ export const authApi = {
   // Get current user
   getCurrentUser: () => apiClient.get<ApiResponse<{ user: User }>>('/auth/user'),
 
+  // Get current profile
+  getProfile: () => apiClient.get<ApiResponse<{ user: User }>>('/profile'),
+
   // Update profile
-  updateProfile: (data: Partial<User>) => apiClient.put('/profile', data),
+  updateProfile: (data: Partial<User>) => apiClient.put<ApiResponse<{ user: User }>>('/profile', data),
+
+  // Change current user password
+  changeOwnPassword: (data: ChangeOwnPasswordRequest) =>
+    apiClient.put<ApiResponse<{ message: string }>>('/profile/password', data),
 };

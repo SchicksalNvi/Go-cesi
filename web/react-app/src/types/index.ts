@@ -65,6 +65,8 @@ export interface User {
   is_admin: boolean;
   is_active: boolean;
   role?: string;
+  roles?: string[];
+  permissions?: string[];
   created_at: string;
   updated_at: string;
 }

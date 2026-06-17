@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { Card, Button, Spin, Empty, message } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { nodesApi } from '@/api/nodes';
@@ -8,16 +8,23 @@ import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
 import { useNodeFiltering } from '@/hooks/useNodeFiltering';
 import { useIsMobile } from '@/hooks/useResponsive';
-import { 
-  NodesToolbar, 
-  NodesListView, 
-  PaginatedCardView,
-  ErrorBoundary,
-  ViewMode,
-  NodeFilters,
-  BulkAction
-} from '@/components';
+import NodesToolbar from '@/components/NodesToolbar';
+import ErrorBoundary from '@/components/ErrorBoundary';
+import type { ViewMode } from '@/components/ViewToggle';
+import type { NodeFilters } from '@/components/FilterBar';
+import type { BulkAction } from '@/components/NodesToolbar';
 import { useListPerformance } from '@/hooks/usePerformanceMonitor';
+
+const NodesListView = lazy(() => import('@/components/NodesListView'));
+const PaginatedCardView = lazy(() => import('@/components/PaginatedCardView'));
+
+function ViewFallback() {
+  return (
+    <div style={{ textAlign: 'center', padding: 32 }}>
+      <Spin />
+    </div>
+  );
+}
 
 function NodeList() {
   const navigate = useNavigate();
@@ -188,19 +195,21 @@ function NodeList() {
               <p>Failed to load list view. Please try refreshing the page.</p>
             </div>
           }>
-            <NodesListView
-              nodes={filteredNodes}
-              loading={loading}
-              selectedNodes={selectedNodes}
-              onSelectionChange={setSelectedNodes}
-              onNodeClick={(nodeName) => navigate(`/nodes/${nodeName}`)}
-              onRefreshNode={async (nodeName) => {
-                message.loading({ content: `Refreshing node: ${nodeName}`, key: 'refresh' });
-                await loadNodes();
-                message.success({ content: `Node ${nodeName} refreshed`, key: 'refresh' });
-              }}
-              searchQuery={searchQuery}
-            />
+            <Suspense fallback={<ViewFallback />}>
+              <NodesListView
+                nodes={filteredNodes}
+                loading={loading}
+                selectedNodes={selectedNodes}
+                onSelectionChange={setSelectedNodes}
+                onNodeClick={(nodeName) => navigate(`/nodes/${nodeName}`)}
+                onRefreshNode={async (nodeName) => {
+                  message.loading({ content: `Refreshing node: ${nodeName}`, key: 'refresh' });
+                  await loadNodes();
+                  message.success({ content: `Node ${nodeName} refreshed`, key: 'refresh' });
+                }}
+                searchQuery={searchQuery}
+              />
+            </Suspense>
           </ErrorBoundary>
         ) : (
           <ErrorBoundary fallback={
@@ -208,11 +217,13 @@ function NodeList() {
               <p>Failed to load card view. Please try refreshing the page.</p>
             </div>
           }>
-            <PaginatedCardView
-              nodes={filteredNodes}
-              onNodeClick={(nodeName) => navigate(`/nodes/${nodeName}`)}
-              searchQuery={searchQuery}
-            />
+            <Suspense fallback={<ViewFallback />}>
+              <PaginatedCardView
+                nodes={filteredNodes}
+                onNodeClick={(nodeName) => navigate(`/nodes/${nodeName}`)}
+                searchQuery={searchQuery}
+              />
+            </Suspense>
           </ErrorBoundary>
         )}
       </div>

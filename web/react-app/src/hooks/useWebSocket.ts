@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { WebSocketMessage } from '@/types';
 import { useStore } from '@/store';
 
@@ -26,6 +26,8 @@ export const useWebSocket = (options: UseWebSocketOptions = {}) => {
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimeoutRef = useRef<number>();
   const shouldReconnectRef = useRef(true);
+  // Tracks live connection state so consumers re-render on connect/disconnect.
+  const [isConnected, setIsConnected] = useState(false);
   
   // Store callbacks in refs to avoid recreating connect function
   const onMessageRef = useRef(onMessage);
@@ -65,6 +67,7 @@ export const useWebSocket = (options: UseWebSocketOptions = {}) => {
 
       ws.onopen = () => {
         reconnectAttemptsRef.current = 0;
+        setIsConnected(true);
         onConnectRef.current?.();
       };
 
@@ -85,6 +88,7 @@ export const useWebSocket = (options: UseWebSocketOptions = {}) => {
       };
 
       ws.onclose = () => {
+        setIsConnected(false);
         onDisconnectRef.current?.();
         // Only reconnect if we should and haven't exceeded max attempts
         if (shouldReconnectRef.current && reconnectAttemptsRef.current < maxReconnectAttempts) {
@@ -116,6 +120,7 @@ export const useWebSocket = (options: UseWebSocketOptions = {}) => {
       wsRef.current.close();
       wsRef.current = null;
     }
+    setIsConnected(false);
   }, []);
 
   const send = useCallback((message: any) => {
@@ -163,6 +168,6 @@ export const useWebSocket = (options: UseWebSocketOptions = {}) => {
     send,
     disconnect,
     reconnect: connect,
-    isConnected: wsRef.current?.readyState === WebSocket.OPEN,
+    isConnected,
   };
 };

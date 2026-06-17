@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"superview/internal/models"
@@ -15,18 +16,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
-
-// ImportRecord 导入记录
-type ImportRecord struct {
-	ID          string    `json:"id"`
-	Filename    string    `json:"filename"`
-	Type        string    `json:"type"`
-	Status      string    `json:"status"` // processing, completed, failed
-	Error       string    `json:"error,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	CompletedAt time.Time `json:"completed_at,omitempty"`
-	FilePath    string    `json:"-"` // 不返回给前端
-}
 
 // DataManagementAPI 数据管理API
 type DataManagementAPI struct {
@@ -45,75 +34,110 @@ func NewDataManagementAPI(activityLogService ...*services.ActivityLogService) *D
 	return api
 }
 
-// generateID 生成唯一ID
-func generateID() string {
-	return fmt.Sprintf("import_%d", time.Now().UnixNano())
-}
-
-// processUserImport 处理用户数据导入
-func (api *DataManagementAPI) processUserImport(filePath string) error {
-	// 读取JSON文件
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return fmt.Errorf("failed to read file: %v", err)
-	}
-
-	// 解析用户数据
-	var users []map[string]interface{}
-	if err := json.Unmarshal(data, &users); err != nil {
-		return fmt.Errorf("failed to parse JSON: %v", err)
-	}
-
-	// 验证和处理用户数据
-	for i, user := range users {
-		if user["username"] == nil || user["username"] == "" {
-			return fmt.Errorf("user at index %d missing username", i)
-		}
-		// 这里应该调用用户服务创建用户
-		// userService.CreateUser(user)
-	}
-
-	return nil
-}
-
-// processSettingsImport 处理设置数据导入
-func (api *DataManagementAPI) processSettingsImport(filePath string) error {
-	// 读取JSON文件
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return fmt.Errorf("failed to read file: %v", err)
-	}
-
-	// 解析设置数据
-	var settings map[string]interface{}
-	if err := json.Unmarshal(data, &settings); err != nil {
-		return fmt.Errorf("failed to parse JSON: %v", err)
-	}
-
-	// 验证和处理设置数据
-	for key, value := range settings {
-		if key == "" {
-			return fmt.Errorf("empty setting key found")
-		}
-		// 这里应该调用设置服务更新设置
-		// settingsService.UpdateSetting(key, value)
-		fmt.Printf("Would import setting: %s = %v\n", key, value)
-	}
-
-	return nil
-}
-
 // ExportDataRequest 导出数据请求
 type ExportDataRequest struct {
 	ExportType string `json:"export_type" binding:"required,oneof=users logs configs processes all"`
-	Format     string `json:"format" binding:"required,oneof=json csv xlsx"`
+	Format     string `json:"format" binding:"required,oneof=json csv"`
+}
+
+var supportedExportFormats = map[string]map[string]bool{
+	models.ExportTypeUsers: {
+		models.ExportFormatJSON: true,
+		models.ExportFormatCSV:  true,
+	},
+	models.ExportTypeLogs: {
+		models.ExportFormatJSON: true,
+		models.ExportFormatCSV:  true,
+	},
+	models.ExportTypeConfigs: {
+		models.ExportFormatJSON: true,
+		models.ExportFormatCSV:  true,
+	},
+	models.ExportTypeProcesses: {
+		models.ExportFormatJSON: true,
+	},
+	models.ExportTypeAll: {
+		models.ExportFormatJSON: true,
+	},
+}
+
+var supportedImportTypes = map[string]bool{
+	models.ImportTypeConfigs: true,
+}
+
+func normalizeConfigImportPayload(data []byte) (map[string]interface{}, int, string, error) {
+	var raw interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, 0, "", fmt.Errorf("failed to parse JSON: %v", err)
+	}
+
+	payload := make(map[string]interface{})
+	totalRecords := 0
+	configCount := 0
+	envVarCount := 0
+
+	switch value := raw.(type) {
+	case []interface{}:
+		payload["configurations"] = value
+		configCount = len(value)
+	case map[string]interface{}:
+		if nestedData, ok := value["data"].(map[string]interface{}); ok {
+			value = nestedData
+		}
+		if configs, ok := value["configurations"].([]interface{}); ok {
+			payload["configurations"] = configs
+			configCount = len(configs)
+		} else if configs, ok := value["configs"].([]interface{}); ok {
+			payload["configurations"] = configs
+			configCount = len(configs)
+		}
+		if envVars, ok := value["environment_variables"].([]interface{}); ok {
+			payload["environment_variables"] = envVars
+			envVarCount = len(envVars)
+		}
+	default:
+		return nil, 0, "", fmt.Errorf("unsupported import payload structure")
+	}
+
+	totalRecords = configCount + envVarCount
+	if totalRecords == 0 {
+		return nil, 0, "", fmt.Errorf("no configurations or environment variables found in import file")
+	}
+
+	summary := fmt.Sprintf("Prepared %d configurations and %d environment variables for import", configCount, envVarCount)
+	return payload, totalRecords, summary, nil
+}
+
+func (api *DataManagementAPI) processConfigImport(filePath, userID string, overwriteExisting bool) (int, string, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return 0, "", fmt.Errorf("failed to read file: %v", err)
+	}
+
+	payload, totalRecords, validationLog, err := normalizeConfigImportPayload(data)
+	if err != nil {
+		return 0, "", err
+	}
+
+	configService := services.NewConfigurationService(api.dataService.DB)
+	options := map[string]interface{}{
+		"overwrite_existing": overwriteExisting,
+		"import_configs":     true,
+		"import_env_vars":    true,
+	}
+
+	if err := configService.ImportConfigurations(payload, userID, options); err != nil {
+		return totalRecords, validationLog, err
+	}
+
+	return totalRecords, validationLog, nil
 }
 
 // CreateBackupRequest 创建备份请求
 type CreateBackupRequest struct {
 	Name        string `json:"name" binding:"required,max=100"`
 	Description string `json:"description" binding:"max=500"`
-	BackupType  string `json:"backup_type" binding:"required,oneof=full incremental config_only"`
+	BackupType  string `json:"backup_type" binding:"required,oneof=full config_only"`
 }
 
 // ExportData 导出数据
@@ -132,6 +156,13 @@ func (api *DataManagementAPI) ExportData(c *gin.Context) {
 	var req ExportDataRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	if !supportedExportFormats[req.ExportType][req.Format] {
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error: fmt.Sprintf("format %s is not supported for export type %s", req.Format, req.ExportType),
+		})
 		return
 	}
 
@@ -450,7 +481,8 @@ func (api *DataManagementAPI) DeleteBackupRecord(c *gin.Context) {
 // @Accept multipart/form-data
 // @Produce json
 // @Param file formData file true "导入文件"
-// @Param import_type formData string true "导入类型" Enums(users,configs,full_backup)
+// @Param import_type formData string true "导入类型" Enums(configs)
+// @Param overwrite_existing formData boolean false "是否覆盖已存在的配置"
 // @Success 200 {object} models.DataImportRecord
 // @Failure 400 {object} ErrorResponse
 // @Failure 401 {object} ErrorResponse
@@ -470,19 +502,20 @@ func (api *DataManagementAPI) ImportData(c *gin.Context) {
 		return
 	}
 
-	// 验证导入类型
-	validTypes := []string{models.ImportTypeUsers, models.ImportTypeConfigs, models.ImportTypeFullBackup}
-	valid := false
-	for _, validType := range validTypes {
-		if importType == validType {
-			valid = true
-			break
-		}
-	}
-	if !valid {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "Invalid import type"})
+	if !supportedImportTypes[importType] {
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error: fmt.Sprintf("import type %s is not supported", importType),
+		})
 		return
 	}
+
+	userID, exists := getUserIDString(c)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "User not authenticated"})
+		return
+	}
+
+	overwriteExisting := strings.EqualFold(c.DefaultPostForm("overwrite_existing", "false"), "true")
 
 	// 保存上传文件
 	uploadDir := "data/uploads"
@@ -491,72 +524,90 @@ func (api *DataManagementAPI) ImportData(c *gin.Context) {
 		return
 	}
 
-	filePath := filepath.Join(uploadDir, file.Filename)
+	filePath := filepath.Join(uploadDir, fmt.Sprintf("%d_%s", time.Now().UnixNano(), filepath.Base(file.Filename)))
 	if err := c.SaveUploadedFile(file, filePath); err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to save uploaded file"})
 		return
 	}
 
-	// 创建导入记录
-	importRecord := ImportRecord{
-		ID:        generateID(),
-		Filename:  file.Filename,
-		Type:      importType,
-		Status:    "processing",
-		CreatedAt: time.Now(),
-		FilePath:  filePath,
+	importRecord, err := api.dataService.CreateImportRecord(importType, filePath, file.Size, userID)
+	if err != nil {
+		_ = os.Remove(filePath)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
 	}
 
 	// 异步处理导入
 	go func() {
+		_ = api.dataService.UpdateImportStatus(importRecord, models.StatusRunning, 0, 0, 0, "", "")
+
 		defer func() {
 			if r := recover(); r != nil {
-				// 更新导入状态为失败
-				importRecord.Status = "failed"
-				importRecord.Error = fmt.Sprintf("Import failed: %v", r)
+				_ = api.dataService.UpdateImportStatus(importRecord, models.StatusFailed, 0, 0, 0, fmt.Sprintf("import failed: %v", r), "")
 			}
 		}()
 
-		// 根据导入类型处理文件
-		switch importType {
-		case "users":
-			err := api.processUserImport(filePath)
-			if err != nil {
-				importRecord.Status = "failed"
-				importRecord.Error = err.Error()
-			} else {
-				importRecord.Status = "completed"
-			}
-		case "settings":
-			err := api.processSettingsImport(filePath)
-			if err != nil {
-				importRecord.Status = "failed"
-				importRecord.Error = err.Error()
-			} else {
-				importRecord.Status = "completed"
-			}
-		default:
-			importRecord.Status = "failed"
-			importRecord.Error = "Unsupported import type"
+		totalRecords, validationLog, processErr := api.processConfigImport(filePath, userID, overwriteExisting)
+		if processErr != nil {
+			_ = api.dataService.UpdateImportStatus(importRecord, models.StatusFailed, totalRecords, 0, totalRecords, processErr.Error(), validationLog)
+			return
 		}
 
-		importRecord.CompletedAt = time.Now()
-		// 这里应该保存到数据库，但为了简化，我们只记录日志
-		fmt.Printf("Import %s completed with status: %s\n", importRecord.ID, importRecord.Status)
+		_ = api.dataService.UpdateImportStatus(importRecord, models.StatusCompleted, totalRecords, totalRecords, 0, "", validationLog)
 	}()
 
-	c.JSON(http.StatusOK, gin.H{
-		"message":   "File uploaded successfully, import is being processed",
-		"import_id": importRecord.ID,
-		"file":      file.Filename,
-		"type":      importType,
-		"status":    "processing",
-	})
+	c.JSON(http.StatusOK, importRecord)
 
 	if api.activityLogService != nil {
 		msg := fmt.Sprintf("Imported data: file=%s type=%s", file.Filename, importType)
 		api.activityLogService.LogWithContext(c, "INFO", "import_data", "data_management", file.Filename, msg, nil)
 	}
+}
+
+// GetImportRecords 获取导入记录列表
+func (api *DataManagementAPI) GetImportRecords(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+
+	validator := validation.NewValidator()
+	pageNum, limitNum := validator.ValidatePagination(c.DefaultQuery("page", "1"), c.DefaultQuery("page_size", "20"))
+	if validator.HasErrors() {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "Invalid pagination parameters"})
+		return
+	}
+	page = pageNum
+	pageSize = limitNum
+
+	records, total, err := api.dataService.GetImportRecords(page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, PaginatedResponse{
+		Data:       records,
+		Total:      total,
+		Page:       page,
+		PageSize:   pageSize,
+		TotalPages: (total + int64(pageSize) - 1) / int64(pageSize),
+	})
+}
+
+// DeleteImportRecord 删除导入记录
+func (api *DataManagementAPI) DeleteImportRecord(c *gin.Context) {
+	id := c.Param("id")
+
+	if err := api.dataService.DeleteImportRecord(id); err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	if api.activityLogService != nil {
+		msg := fmt.Sprintf("Deleted import record: %s", id)
+		api.activityLogService.LogWithContext(c, "WARNING", "delete_import", "data_management", id, msg, nil)
+	}
+
+	c.JSON(http.StatusOK, SuccessResponse{Message: "Import record deleted successfully"})
 }
 
 // RegisterDataManagementRoutes 注册数据管理路由
@@ -576,5 +627,8 @@ func RegisterDataManagementRoutes(router *gin.RouterGroup) {
 	router.DELETE("/backups/:id", api.DeleteBackupRecord)
 
 	// 数据导入相关路由
+	router.GET("/imports", api.GetImportRecords)
+	router.DELETE("/imports/:id", api.DeleteImportRecord)
 	router.POST("/import", api.ImportData)
+	router.POST("/imports", api.ImportData)
 }

@@ -38,13 +38,15 @@ type DatabaseConfig struct {
 }
 
 // GetDefaultConfig 获取默认数据库配置
-// SQLite 在 WAL 模式下建议使用较少的连接数
+// SQLite WAL 模式支持「多读单写」：多个读连接可并发，写操作串行。
+// 放开连接数以避免一个慢查询（如大数据导出）阻塞所有请求；
+// 写锁竞争由 DSN 的 _busy_timeout 处理（等待而非立即报 "database is locked"）。
 func GetDefaultConfig() *DatabaseConfig {
 	return &DatabaseConfig{
-		MaxOpenConns:        1,                 // SQLite WAL 模式下建议单连接，避免锁竞争
-		MaxIdleConns:        1,                 // 保持一个空闲连接
-		ConnMaxLifetime:     0,                 // SQLite 不需要连接轮换
-		ConnMaxIdleTime:     0,                 // 保持连接不关闭
+		MaxOpenConns:        25,                // WAL 模式下允许并发读，避免单连接串行化
+		MaxIdleConns:        5,                 // 保持空闲连接复用
+		ConnMaxLifetime:     5 * time.Minute,   // 连接最大生命周期
+		ConnMaxIdleTime:     1 * time.Minute,   // 空闲连接回收时间
 		QueryTimeout:        30 * time.Second,  // 查询超时30秒
 		HealthCheckEnabled:  true,              // 启用健康检查
 		HealthCheckInterval: 30 * time.Second,  // 每30秒检查一次
@@ -54,6 +56,20 @@ func GetDefaultConfig() *DatabaseConfig {
 
 func InitDB() error {
 	return InitDBWithConfig(GetDefaultConfig())
+}
+
+// resolveGormLogLevel 根据环境变量 DB_LOG_LEVEL 决定 GORM 日志级别，默认 Warn。
+func resolveGormLogLevel() logger.LogLevel {
+	switch strings.ToLower(os.Getenv("DB_LOG_LEVEL")) {
+	case "silent":
+		return logger.Silent
+	case "error":
+		return logger.Error
+	case "info":
+		return logger.Info
+	default:
+		return logger.Warn
+	}
 }
 
 func InitDBWithConfig(config *DatabaseConfig) error {
@@ -71,8 +87,10 @@ func InitDBWithConfig(config *DatabaseConfig) error {
 	}
 
 	// 配置GORM日志
+	// 默认 Warn：避免在生产环境把每一条 SQL 都打到日志（CPU + 磁盘开销）。
+	// 可通过环境变量 DB_LOG_LEVEL=silent|error|warn|info 覆盖（开发期可设为 info）。
 	gormConfig := &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Info),
+		Logger: logger.Default.LogMode(resolveGormLogLevel()),
 		NowFunc: func() time.Time {
 			return time.Now().Local()
 		},
@@ -81,7 +99,9 @@ func InitDBWithConfig(config *DatabaseConfig) error {
 
 	// 连接SQLite数据库
 	dbPath := filepath.Join(dataDir, "superview.db")
-	dsn := fmt.Sprintf("%s?cache=shared&mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_foreign_keys=1", dbPath)
+	// _busy_timeout: 写锁竞争时等待而非立即报 "database is locked"（配合多读连接）。
+	// 不使用 cache=shared：多连接下 shared cache 会引入表级锁，WAL + 私有 cache 才支持多读并发。
+	dsn := fmt.Sprintf("%s?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_foreign_keys=1&_busy_timeout=5000", dbPath)
 	db, err := gorm.Open(sqlite.Open(dsn), gormConfig)
 	if err != nil {
 		return fmt.Errorf("failed to connect database: %v", err)
