@@ -437,61 +437,86 @@ func (h *Hub) startLogStreaming() {
 func (h *Hub) pollAndStreamLogs() {
 	// 收集所有订阅的日志流
 	subscribedLogs := h.getSubscribedLogStreams()
+	if len(subscribedLogs) == 0 {
+		return
+	}
+
+	// 并发拉取，避免单个慢节点的阻塞 RPC 拖垮整个 2 秒轮询周期。
+	const maxConcurrent = 8
+	sem := make(chan struct{}, maxConcurrent)
+	var wg sync.WaitGroup
 
 	for logKey := range subscribedLogs {
-		parts := strings.Split(logKey, ":")
-		if len(parts) != 2 {
-			continue
-		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(logKey string) {
+			defer wg.Done()
+			defer func() {
+				<-sem
+				if r := recover(); r != nil {
+					logger.Error("panic while streaming log", zap.String("log_key", logKey), zap.Any("panic", r))
+				}
+			}()
+			h.streamLogKey(logKey)
+		}(logKey)
+	}
+	wg.Wait()
+}
 
-		nodeName, processName := parts[0], parts[1]
+// streamLogKey 拉取单个订阅的日志流并推送给订阅的客户端。
+func (h *Hub) streamLogKey(logKey string) {
+	parts := strings.Split(logKey, ":")
+	if len(parts) != 2 {
+		return
+	}
 
-		// 获取节点
-		node, err := h.service.GetNode(nodeName)
+	nodeName, processName := parts[0], parts[1]
+
+	// 获取节点
+	node, err := h.service.GetNode(nodeName)
+	if err != nil {
+		return
+	}
+
+	// 获取当前偏移量（使用共享的 logOffsets）
+	h.logOffsetsMu.RLock()
+	currentOffset, exists := h.logOffsets[logKey]
+	h.logOffsetsMu.RUnlock()
+
+	if !exists {
+		// 首次订阅：获取当前文件大小作为起始偏移量，不发送任何日志
+		// 这样只会推送订阅之后的新日志
+		fileSize, err := node.GetProcessLogSize(processName)
 		if err != nil {
-			continue
-		}
-
-		// 获取当前偏移量（使用共享的 logOffsets）
-		h.logOffsetsMu.RLock()
-		currentOffset, exists := h.logOffsets[logKey]
-		h.logOffsetsMu.RUnlock()
-
-		if !exists {
-			// 首次订阅：获取当前文件大小作为起始偏移量，不发送任何日志
-			// 这样只会推送订阅之后的新日志
-			fileSize, err := node.GetProcessLogSize(processName)
-			if err != nil {
-				logger.Debug("Failed to get log size",
-					zap.String("node", nodeName),
-					zap.String("process", processName),
-					zap.Error(err))
-				continue
-			}
-			h.logOffsetsMu.Lock()
-			h.logOffsets[logKey] = fileSize
-			h.logOffsetsMu.Unlock()
-			continue // 不发送任何日志，等待下次轮询
-		}
-
-		// 从当前偏移量读取新日志
-		logStream, err := node.GetProcessLogStream(processName, currentOffset, 50)
-		if err != nil {
-			logger.Debug("Failed to get log stream",
+			logger.Debug("Failed to get log size",
 				zap.String("node", nodeName),
 				zap.String("process", processName),
 				zap.Error(err))
-			continue
+			return
 		}
+		h.logOffsetsMu.Lock()
+		h.logOffsets[logKey] = fileSize
+		h.logOffsetsMu.Unlock()
+		return // 不发送任何日志，等待下次轮询
+	}
 
-		// 只有当偏移量变化时才发送（说明有新日志）
-		if logStream.LastOffset > currentOffset && len(logStream.Entries) > 0 {
-			h.SendLogStreamToSubscribedClients(nodeName, processName, logStream)
-			// 更新偏移量
-			h.logOffsetsMu.Lock()
-			h.logOffsets[logKey] = logStream.LastOffset
-			h.logOffsetsMu.Unlock()
-		}
+	// 从当前偏移量读取新日志
+	logStream, err := node.GetProcessLogStream(processName, currentOffset, 50)
+	if err != nil {
+		logger.Debug("Failed to get log stream",
+			zap.String("node", nodeName),
+			zap.String("process", processName),
+			zap.Error(err))
+		return
+	}
+
+	// 只有当偏移量变化时才发送（说明有新日志）
+	if logStream.LastOffset > currentOffset && len(logStream.Entries) > 0 {
+		h.SendLogStreamToSubscribedClients(nodeName, processName, logStream)
+		// 更新偏移量
+		h.logOffsetsMu.Lock()
+		h.logOffsets[logKey] = logStream.LastOffset
+		h.logOffsetsMu.Unlock()
 	}
 }
 

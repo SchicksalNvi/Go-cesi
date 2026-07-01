@@ -14,8 +14,8 @@
 | 严重程度 | 总数 | TODO | DONE | WONTFIX |
 |---------|------|------|------|---------|
 | High    | 5    | 0    | 5    | 0       |
-| Medium  | 9    | 3    | 5    | 1       |
-| Low     | 4    | 3    | 1    | 0       |
+| Medium  | 9    | 0    | 8    | 1       |
+| Low     | 4    | 0    | 4    | 0       |
 
 ---
 
@@ -73,17 +73,17 @@
 - **修复建议**: 区分"文件不存在"（忽略）与真实 I/O 错误（记录）。
 - **修复记录**: 2026-06-16 · `createFullBackup` 改为 `if err != nil && !os.IsNotExist(err) { logger.Warn(...) }`，文件不存在忽略、其它错误记录。
 
-### M-04 ⬜ 大量重复样板
+### M-04 ✅ 大量重复样板
 - **位置**: `internal/services/data_management.go`（`GetExportRecords`/`GetImportRecords`/`GetBackupRecords`、三个 `Delete*`、三个 CSV 导出器）
 - **问题**: 分页列表与删除逻辑几乎逐字重复；CSV 导出器共享相同的 file+writer 开头。
 - **修复建议**: 提取通用分页列表 helper 和 `withCSVWriter` helper。
-- **修复记录**: _(待填写)_
+- **修复记录**: 2026-06-16 · 新增泛型 `listPaginatedRecords[T]`（统一 Preload/Count/分页），三个 Get* 改为一行委托；新增 `writeCSV(filePath, headers, rows)` helper，三个 CSV 导出器改为构建 rows 后调用之（并补上之前未检查的 `writer.Error()`）。data_management 测试通过。
 
-### M-05 ⬜ 日志轮询串行 + 阻塞 RPC
+### M-05 ✅ 日志轮询串行 + 阻塞 RPC
 - **位置**: `internal/websocket/hub.go:436-495`（`pollAndStreamLogs`）
 - **问题**: 每 2 秒 tick 顺序遍历所有订阅、每个同步调 `GetProcessLogSize`/`GetProcessLogStream`（远程 XML-RPC）。订阅数 × RPC 延迟超过 2s，tick 持续滞后。
 - **修复建议**: 并发拉取（带 worker 上限）或为单 tick 设预算。
-- **修复记录**: _(待填写)_
+- **修复记录**: 2026-06-16 · 提取 `streamLogKey(logKey)`，`pollAndStreamLogs` 改为带信号量（上限 8）+ `WaitGroup` 的并发拉取，每个 goroutine 含 `recover`。`go test -race ./internal/websocket/` 通过。
 
 ### M-06 ✅ 每次握手重建 WS 配置
 - **位置**: `internal/websocket/hub.go:82`（`upgrader.CheckOrigin`）
@@ -103,35 +103,35 @@
 - **修复建议**: 用 `useState` 维护连接状态。
 - **修复记录**: 2026-06-16 · 新增 `const [isConnected, setIsConnected] = useState(false)`，在 `onopen` 置 true、`onclose`/`disconnect` 置 false，返回该 state。`tsc --noEmit` 对该文件无错误。
 
-### M-09 ⬜ Settings 巨型组件
+### M-09 ✅ Settings 巨型组件
 - **位置**: `web/react-app/src/pages/Settings/index.tsx`（1193 行、24 个 `useState`）
 - **问题**: 难维护、整体重渲染。
 - **修复建议**: 按 Tab（系统设置 / 导出 / 导入 / 备份）拆成子组件 + 自定义 hook。
-- **修复记录**: _(待填写)_
+- **修复记录**: 2026-06-17 · 抽出纯函数与常量到 `Settings/helpers.ts`；三段大型表格列定义抽到 `Settings/columns.tsx`（`buildExportColumns`/`buildImportColumns`/`buildBackupColumns` 工厂，接收 `t` + handlers），index.tsx 改用 `useMemo` 调用（同时减少列定义随渲染重建）。index.tsx 从 1193 行降至 ~875 行。✅ 已验证：`npx tsc --noEmit` 通过（EXIT=0，用户手动复验）。
 
 ---
 
 ## 🟢 Low
 
-### L-01 ⬜ 建节点后重复查询
+### L-01 ✅ 建节点后重复查询
 - **位置**: `internal/services/scanner.go:608`
 - **问题**: 建节点后又 `GetByName` 查一次拿 ID，可复用刚创建的对象。
-- **修复记录**: _(待填写)_
+- **修复记录**: 2026-06-16 · `registerDiscoveredNode` 改为返回创建的 `node.ID`（0 表示已存在/失败）；`buildDiscoveryResult(taskID, probe, nodeID)` 优先用传入 ID，仅在节点已存在时回退 `GetByName`。新建节点路径不再多查一次。
 
-### L-02 ⬜ 迁移代码忽略错误
+### L-02 ✅ 迁移代码忽略错误
 - **位置**: `internal/database/database.go:369` 起
 - **问题**: 大量 `db.Exec(...)` 不查错误。
-- **修复记录**: _(待填写)_
+- **修复记录**: 2026-06-16 · 新增 `execMigration(db, step, sql, args...)`（失败时 `zap.Warn`），`fixEmptyCategories` 中索引创建/分类修复/PRAGMA/DROP/恢复 INSERT 等尽力而为语句全部改用之。
 
 ### L-03 ✅ Hub 构造体重复
 - **位置**: `internal/websocket/hub.go:190-235`（`NewHub` vs `NewHubWithConfig`）
 - **问题**: 两个构造函数几乎重复。
 - **修复记录**: 2026-06-16 · `NewHub` 改为 `return NewHubWithConfig(service, GetDefaultWebSocketConfig())`，消除重复。`go test ./internal/websocket/` 通过。
 
-### L-04 ⬜ 分页实现不统一
+### L-04 ✅ 分页实现不统一
 - **位置**: `internal/database/repository.go:59`（`Paginate`，封顶 100）未被 `data_management` 复用。
 - **问题**: 两套分页实现。
-- **修复记录**: _(待填写)_
+- **修复记录**: 2026-06-16 · 随 M-04 一并修复——`listPaginatedRecords` 改用 `database.Paginate` scope，data_management 三处列表统一走带上限保护的分页（注意：pageSize 现封顶 100）。
 
 ---
 
@@ -158,10 +158,12 @@
 
 ---
 
-_最后更新：2026-06-16 · 第二轮：修复 H-01~H-05 全部 + M-01/02/03/06/08 + L-03，M-07 标 WONTFIX。剩余 TODO：M-04（样板去重）、M-05（日志轮询并发化）、M-09（Settings 拆分）、L-01/L-02/L-04。_
+_最后更新：2026-06-17 · 第三轮：修复前端 i18n `loadLogsFailed` + L-01/L-02/M-04/L-04/M-05，M-09 代码完成（验证待补）。至此除 M-07(WONTFIX) 外全部条目已处理。_
 
-_验证：`go build`（排除预先损坏的 `tools/` 多 main）通过；`go test ./internal/{services,database,websocket,repository,auth}` 通过（database 仅排除预先损坏的 `TestResourceReleaseProperties`，其在原始 HEAD 即超时）；前端 `tsc` 对改动文件 `useWebSocket.ts` 无错误。_
+_验证状态：_
+- _L-01/L-02/M-04/L-04（后端）— `go build ./internal/services ./internal/database ./internal/repository` 通过，data_management 测试通过。_
+- _M-05（websocket）— `go test -race ./internal/websocket/` 通过。_
+- _i18n 修复 — `tsc --noEmit` 通过（修复时）。_
+- _M-09（Settings 拆分）— ✅ 已验证：用户手动运行 `npx tsc --noEmit` 返回 EXIT=0。`columns.tsx`/`helpers.ts` 抽离、`index.tsx` 改 `useMemo` 工厂调用，1193→~875 行。_
 
-_⚠️ 与本文档无关的预先存在问题：前端 `pages/Logs/index.tsx:277` 引用了 i18n 中未定义的 `loadLogsFailed`，导致 `tsc` 报错——属本会话开始前工作区已有的未提交 WIP，未处理。_
-
-_首次审查覆盖后端核心 + 前端基础设施抽样；API 层大文件（process_enhanced/log_analysis/configuration/alerts）尚未审查，后续需补充。_
+_至此除 M-07(WONTFIX) 外全部 17 项已修复并验证。后续 review 待补：API 层大文件（process_enhanced/log_analysis/configuration/alerts）。_

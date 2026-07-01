@@ -394,11 +394,12 @@ func (s *Scanner) runScan(ctx context.Context, config *ScanConfig, ips []string,
 			}
 
 			// Count results
+			var discoveredNodeID uint
 			if probeTask.Status == models.ResultStatusSuccess {
 				atomic.AddInt32(&foundNodes, 1)
 
-				// Register the discovered node
-				s.registerDiscoveredNode(ctx, taskID, probeTask, config.Username, config.Password)
+				// Register the discovered node (returns its ID to avoid a re-query)
+				discoveredNodeID = s.registerDiscoveredNode(ctx, taskID, probeTask, config.Username, config.Password)
 
 				// Broadcast node discovered event
 				s.broadcastNodeDiscovered(taskID, probeTask)
@@ -407,7 +408,7 @@ func (s *Scanner) runScan(ctx context.Context, config *ScanConfig, ips []string,
 			}
 
 			// Buffer discovery result for batch insert
-			pendingResults = append(pendingResults, s.buildDiscoveryResult(taskID, probeTask))
+			pendingResults = append(pendingResults, s.buildDiscoveryResult(taskID, probeTask, discoveredNodeID))
 			if len(pendingResults) >= resultBatchSize {
 				flushResults()
 			}
@@ -530,8 +531,10 @@ func (s *Scanner) markTaskFailed(taskID uint, errorMsg string) {
 }
 
 // registerDiscoveredNode creates a new node record for a discovered Supervisor.
+// Returns the created node's ID (0 if the node already existed or creation failed),
+// allowing the caller to avoid re-querying by name.
 // Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 8.2
-func (s *Scanner) registerDiscoveredNode(ctx context.Context, taskID uint, probe *ProbeTask, username, password string) {
+func (s *Scanner) registerDiscoveredNode(ctx context.Context, taskID uint, probe *ProbeTask, username, password string) uint {
 	nodeRepo := s.service.GetNodeRepository()
 
 	// Check if node already exists by host:port (Requirement 5.3)
@@ -541,14 +544,14 @@ func (s *Scanner) registerDiscoveredNode(ctx context.Context, taskID uint, probe
 			zap.String("host", probe.IP),
 			zap.Int("port", probe.Port),
 			zap.Error(err))
-		return
+		return 0
 	}
 
 	if exists {
 		logger.Debug("Node with same host:port already exists, marking as duplicate",
 			zap.String("host", probe.IP),
 			zap.Int("port", probe.Port))
-		return
+		return 0
 	}
 
 	// Generate node name from IP (Requirement 5.2)
@@ -568,7 +571,7 @@ func (s *Scanner) registerDiscoveredNode(ctx context.Context, taskID uint, probe
 		logger.Error("Failed to create discovered node",
 			zap.String("node_name", nodeName),
 			zap.Error(err))
-		return
+		return 0
 	}
 
 	logger.Info("Discovered node registered in database",
@@ -597,6 +600,8 @@ func (s *Scanner) registerDiscoveredNode(ctx context.Context, taskID uint, probe
 			nodeName, probe.IP, probe.Port, taskID)
 		activityLog.LogSystemEvent("INFO", "node_discovered", "discovery", nodeName, message, nil)
 	}
+
+	return node.ID
 }
 
 // generateNodeName creates a node name from an IP address.
@@ -606,7 +611,9 @@ func generateNodeName(ip string) string {
 }
 
 // buildDiscoveryResult builds a discovery result record for batch insertion.
-func (s *Scanner) buildDiscoveryResult(taskID uint, probe *ProbeTask) *models.DiscoveryResult {
+// nodeID, when non-zero, is the just-created node's ID (avoids a re-query);
+// otherwise it falls back to looking the node up by name.
+func (s *Scanner) buildDiscoveryResult(taskID uint, probe *ProbeTask, nodeID uint) *models.DiscoveryResult {
 	result := &models.DiscoveryResult{
 		TaskID:   taskID,
 		IP:       probe.IP,
@@ -617,16 +624,20 @@ func (s *Scanner) buildDiscoveryResult(taskID uint, probe *ProbeTask) *models.Di
 		Duration: probe.Duration.Milliseconds(),
 	}
 
-	// If successful, try to get the node ID
+	// If successful, record the node name and ID
 	if probe.Status == models.ResultStatusSuccess {
 		nodeName := generateNodeName(probe.IP)
 		result.NodeName = nodeName
 
-		// Try to get the node to set NodeID
-		nodeRepo := s.service.GetNodeRepository()
-		node, err := nodeRepo.GetByName(nodeName)
-		if err == nil && node != nil {
-			result.NodeID = &node.ID
+		if nodeID != 0 {
+			result.NodeID = &nodeID
+		} else {
+			// Node already existed: look it up by name to set NodeID
+			nodeRepo := s.service.GetNodeRepository()
+			node, err := nodeRepo.GetByName(nodeName)
+			if err == nil && node != nil {
+				result.NodeID = &node.ID
+			}
 		}
 	}
 

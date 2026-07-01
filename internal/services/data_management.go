@@ -297,7 +297,8 @@ func (s *DataManagementService) exportToJSON(filePath string, data interface{}) 
 }
 
 // exportUsersToCSV 导出用户数据为CSV格式
-func (s *DataManagementService) exportUsersToCSV(filePath string, users []models.User) error {
+// writeCSV 将表头与数据行写入 CSV 文件，统一处理文件/writer 样板与错误。
+func writeCSV(filePath string, headers []string, rows [][]string) error {
 	file, err := os.Create(filePath)
 	if err != nil {
 		return err
@@ -305,15 +306,22 @@ func (s *DataManagementService) exportUsersToCSV(filePath string, users []models
 	defer file.Close()
 
 	writer := csv.NewWriter(file)
-	defer writer.Flush()
-
-	// 写入标题行
-	headers := []string{"ID", "Username", "Email", "FullName", "IsActive", "IsAdmin", "LastLogin", "CreatedAt", "Roles"}
 	if err := writer.Write(headers); err != nil {
 		return err
 	}
+	for _, row := range rows {
+		if err := writer.Write(row); err != nil {
+			return err
+		}
+	}
+	writer.Flush()
+	return writer.Error()
+}
 
-	// 写入数据行
+// exportUsersToCSV 导出用户数据为CSV格式
+func (s *DataManagementService) exportUsersToCSV(filePath string, users []models.User) error {
+	headers := []string{"ID", "Username", "Email", "FullName", "IsActive", "IsAdmin", "LastLogin", "CreatedAt", "Roles"}
+	rows := make([][]string, 0, len(users))
 	for _, user := range users {
 		roleNames := make([]string, len(user.Roles))
 		for i, role := range user.Roles {
@@ -325,7 +333,7 @@ func (s *DataManagementService) exportUsersToCSV(filePath string, users []models
 			lastLogin = user.LastLogin.Format("2006-01-02 15:04:05")
 		}
 
-		row := []string{
+		rows = append(rows, []string{
 			user.ID,
 			user.Username,
 			user.Email,
@@ -335,35 +343,17 @@ func (s *DataManagementService) exportUsersToCSV(filePath string, users []models
 			lastLogin,
 			user.CreatedAt.Format("2006-01-02 15:04:05"),
 			strings.Join(roleNames, ";"),
-		}
-		if err := writer.Write(row); err != nil {
-			return err
-		}
+		})
 	}
-
-	return nil
+	return writeCSV(filePath, headers, rows)
 }
 
 // exportLogsToCSV 导出日志数据为CSV格式
 func (s *DataManagementService) exportLogsToCSV(filePath string, logs []models.ActivityLog) error {
-	file, err := os.Create(filePath)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	writer := csv.NewWriter(file)
-	defer writer.Flush()
-
-	// 写入标题行
 	headers := []string{"ID", "UserID", "Action", "Resource", "Details", "IPAddress", "UserAgent", "CreatedAt"}
-	if err := writer.Write(headers); err != nil {
-		return err
-	}
-
-	// 写入数据行
+	rows := make([][]string, 0, len(logs))
 	for _, log := range logs {
-		row := []string{
+		rows = append(rows, []string{
 			strconv.FormatUint(uint64(log.ID), 10),
 			log.UserID,
 			log.Action,
@@ -372,39 +362,21 @@ func (s *DataManagementService) exportLogsToCSV(filePath string, logs []models.A
 			log.IPAddress,
 			log.UserAgent,
 			log.CreatedAt.Format("2006-01-02 15:04:05"),
-		}
-		if err := writer.Write(row); err != nil {
-			return err
-		}
+		})
 	}
-
-	return nil
+	return writeCSV(filePath, headers, rows)
 }
 
 // exportConfigsToCSV 导出配置数据为CSV格式
 func (s *DataManagementService) exportConfigsToCSV(filePath string, configs []models.Configuration) error {
-	file, err := os.Create(filePath)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	writer := csv.NewWriter(file)
-	defer writer.Flush()
-
-	// 写入标题行
 	headers := []string{"ID", "NodeID", "Name", "Description", "ConfigType", "IsActive", "CreatedAt", "UpdatedAt"}
-	if err := writer.Write(headers); err != nil {
-		return err
-	}
-
-	// 写入数据行
+	rows := make([][]string, 0, len(configs))
 	for _, config := range configs {
 		nodeIDStr := ""
 		if config.NodeID != nil {
 			nodeIDStr = strconv.FormatUint(uint64(*config.NodeID), 10)
 		}
-		row := []string{
+		rows = append(rows, []string{
 			strconv.FormatUint(uint64(config.ID), 10),
 			nodeIDStr,
 			config.Key,
@@ -413,13 +385,9 @@ func (s *DataManagementService) exportConfigsToCSV(filePath string, configs []mo
 			strconv.FormatBool(config.IsRequired),
 			config.CreatedAt.Format("2006-01-02 15:04:05"),
 			config.UpdatedAt.Format("2006-01-02 15:04:05"),
-		}
-		if err := writer.Write(row); err != nil {
-			return err
-		}
+		})
 	}
-
-	return nil
+	return writeCSV(filePath, headers, rows)
 }
 
 // updateExportStatus 更新导出状态
@@ -437,28 +405,36 @@ func (s *DataManagementService) updateExportStatus(record *models.DataExportReco
 	s.applyUpdates(record, updates, "updateExportStatus")
 }
 
-// GetExportRecords 获取导出记录列表
-func (s *DataManagementService) GetExportRecords(page, pageSize int, userID string) ([]models.DataExportRecord, int64, error) {
-	var records []models.DataExportRecord
+// listPaginatedRecords 通用分页列表查询：Preload Creator、按 created_at 倒序、
+// 统一走 database.Paginate（含 pageSize 上限保护）。scope 可选，用于追加过滤条件。
+func listPaginatedRecords[T any](db *gorm.DB, page, pageSize int, scope func(*gorm.DB) *gorm.DB) ([]T, int64, error) {
+	var records []T
 	var total int64
 
-	query := s.DB.Model(&models.DataExportRecord{}).Preload("Creator")
-
-	// 如果不是管理员，只能查看自己的记录
-	if userID != "" {
-		query = query.Where("created_by = ?", userID)
+	query := db.Model(new(T)).Preload("Creator")
+	if scope != nil {
+		query = scope(query)
 	}
 
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
-	offset := (page - 1) * pageSize
-	if err := query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&records).Error; err != nil {
+	if err := query.Scopes(database.Paginate(page, pageSize)).Order("created_at DESC").Find(&records).Error; err != nil {
 		return nil, 0, err
 	}
 
 	return records, total, nil
+}
+
+// GetExportRecords 获取导出记录列表
+func (s *DataManagementService) GetExportRecords(page, pageSize int, userID string) ([]models.DataExportRecord, int64, error) {
+	var scope func(*gorm.DB) *gorm.DB
+	if userID != "" {
+		// 非管理员只能查看自己的记录
+		scope = func(q *gorm.DB) *gorm.DB { return q.Where("created_by = ?", userID) }
+	}
+	return listPaginatedRecords[models.DataExportRecord](s.DB, page, pageSize, scope)
 }
 
 // DeleteExportRecord 删除导出记录
@@ -479,21 +455,7 @@ func (s *DataManagementService) DeleteExportRecord(id string) error {
 
 // GetImportRecords 获取导入记录列表
 func (s *DataManagementService) GetImportRecords(page, pageSize int) ([]models.DataImportRecord, int64, error) {
-	var records []models.DataImportRecord
-	var total int64
-
-	query := s.DB.Model(&models.DataImportRecord{}).Preload("Creator")
-
-	if err := query.Count(&total).Error; err != nil {
-		return nil, 0, err
-	}
-
-	offset := (page - 1) * pageSize
-	if err := query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&records).Error; err != nil {
-		return nil, 0, err
-	}
-
-	return records, total, nil
+	return listPaginatedRecords[models.DataImportRecord](s.DB, page, pageSize, nil)
 }
 
 // UpdateImportStatus 更新导入状态
@@ -703,21 +665,7 @@ func (s *DataManagementService) updateBackupStatus(record *models.BackupRecord, 
 
 // GetBackupRecords 获取备份记录列表
 func (s *DataManagementService) GetBackupRecords(page, pageSize int) ([]models.BackupRecord, int64, error) {
-	var records []models.BackupRecord
-	var total int64
-
-	query := s.DB.Model(&models.BackupRecord{}).Preload("Creator")
-
-	if err := query.Count(&total).Error; err != nil {
-		return nil, 0, err
-	}
-
-	offset := (page - 1) * pageSize
-	if err := query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&records).Error; err != nil {
-		return nil, 0, err
-	}
-
-	return records, total, nil
+	return listPaginatedRecords[models.BackupRecord](s.DB, page, pageSize, nil)
 }
 
 // DeleteBackupRecord 删除备份记录

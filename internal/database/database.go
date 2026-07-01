@@ -345,6 +345,13 @@ func Close() error {
 	return sqlDB.Close()
 }
 
+// execMigration 执行一条尽力而为的迁移语句，失败时记录日志而非静默忽略。
+func execMigration(db *gorm.DB, step, sql string, args ...interface{}) {
+	if err := db.Exec(sql, args...).Error; err != nil {
+		zap.L().Warn("migration step failed", zap.String("step", step), zap.Error(err))
+	}
+}
+
 // fixEmptyCategories 手动管理 system_settings 表，避免 GORM AutoMigrate 的问题
 func fixEmptyCategories(db *gorm.DB) error {
 	// 检查表是否存在
@@ -372,8 +379,8 @@ func fixEmptyCategories(db *gorm.DB) error {
 		if err := db.Exec(createSQL).Error; err != nil {
 			return err
 		}
-		db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_category_key ON system_settings(category, key)")
-		db.Exec("CREATE INDEX IF NOT EXISTS idx_system_settings_deleted_at ON system_settings(deleted_at)")
+		execMigration(db, "create idx_category_key", "CREATE UNIQUE INDEX IF NOT EXISTS idx_category_key ON system_settings(category, key)")
+		execMigration(db, "create idx_system_settings_deleted_at", "CREATE INDEX IF NOT EXISTS idx_system_settings_deleted_at ON system_settings(deleted_at)")
 		zap.L().Info("Created system_settings table")
 		return nil
 	}
@@ -386,7 +393,7 @@ func fixEmptyCategories(db *gorm.DB) error {
 
 	if !strings.Contains(tableSQL, "FOREIGN KEY") {
 		// 没有外键，只需修复空值
-		db.Exec("UPDATE system_settings SET category = 'general' WHERE category IS NULL OR category = ''")
+		execMigration(db, "fix empty categories", "UPDATE system_settings SET category = 'general' WHERE category IS NULL OR category = ''")
 		return nil
 	}
 
@@ -415,10 +422,10 @@ func fixEmptyCategories(db *gorm.DB) error {
 	}
 
 	// 重建表
-	db.Exec("PRAGMA foreign_keys=OFF")
-	defer db.Exec("PRAGMA foreign_keys=ON")
+	execMigration(db, "disable foreign_keys", "PRAGMA foreign_keys=OFF")
+	defer execMigration(db, "enable foreign_keys", "PRAGMA foreign_keys=ON")
 
-	db.Exec("DROP TABLE IF EXISTS system_settings")
+	execMigration(db, "drop system_settings", "DROP TABLE IF EXISTS system_settings")
 
 	createSQL := `CREATE TABLE system_settings (
 		id TEXT PRIMARY KEY,
@@ -442,13 +449,13 @@ func fixEmptyCategories(db *gorm.DB) error {
 		if b.Key == "" {
 			continue
 		}
-		db.Exec(`INSERT INTO system_settings (id, category, key, value, value_type, description, is_public, updated_by, created_at, updated_at) 
+		execMigration(db, "restore system_settings row", `INSERT INTO system_settings (id, category, key, value, value_type, description, is_public, updated_by, created_at, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			b.ID, b.Category, b.Key, b.Value, b.ValueType, b.Description, b.IsPublic, b.UpdatedBy, b.CreatedAt, b.UpdatedAt)
 	}
 
-	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_category_key ON system_settings(category, key)")
-	db.Exec("CREATE INDEX IF NOT EXISTS idx_system_settings_deleted_at ON system_settings(deleted_at)")
+	execMigration(db, "create idx_category_key", "CREATE UNIQUE INDEX IF NOT EXISTS idx_category_key ON system_settings(category, key)")
+	execMigration(db, "create idx_system_settings_deleted_at", "CREATE INDEX IF NOT EXISTS idx_system_settings_deleted_at ON system_settings(deleted_at)")
 
 	zap.L().Info("Successfully rebuilt system_settings table", zap.Int("records", len(backups)))
 	return nil
