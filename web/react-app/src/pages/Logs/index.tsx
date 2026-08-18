@@ -12,11 +12,11 @@ import {
   Alert,
 } from 'antd';
 import {
-  SearchOutlined,
-  ReloadOutlined,
-  DownloadOutlined,
-  DeleteOutlined,
-} from '@ant-design/icons';
+  Search,
+  RefreshCw,
+  Download,
+  Trash2,
+} from 'lucide-react';
 import { Modal } from 'antd';
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
 import dayjs, { Dayjs } from 'dayjs';
@@ -288,7 +288,7 @@ const Logs: React.FC = () => {
         <h1 style={{ margin: 0 }}>{t.logs.activityLogs}</h1>
         <Space>
           <Button
-            icon={<DownloadOutlined />}
+            icon={<Download size={14} strokeWidth={1.7} />}
             onClick={handleExport}
             disabled={loading}
           >
@@ -297,7 +297,7 @@ const Logs: React.FC = () => {
           {canDeleteLogs && (
             <Button
               danger
-              icon={<DeleteOutlined />}
+              icon={<Trash2 size={14} strokeWidth={1.7} />}
               onClick={handleClearLogs}
               disabled={loading}
             >
@@ -306,7 +306,7 @@ const Logs: React.FC = () => {
           )}
           <Button
             type="primary"
-            icon={<ReloadOutlined />}
+            icon={<RefreshCw size={14} strokeWidth={1.7} />}
             onClick={() => loadLogs()}
             loading={loading}
           >
@@ -331,7 +331,7 @@ const Logs: React.FC = () => {
         <Space wrap style={{ width: '100%' }}>
           <Input
             placeholder={t.common.search + '...'}
-            prefix={<SearchOutlined />}
+            prefix={<Search size={14} strokeWidth={1.7} />}
             style={{ width: 300 }}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
@@ -397,7 +397,7 @@ const Logs: React.FC = () => {
           />
           <Button
             type="primary"
-            icon={<SearchOutlined />}
+            icon={<Search size={14} strokeWidth={1.7} />}
             onClick={handleSearch}
             loading={loading}
           >

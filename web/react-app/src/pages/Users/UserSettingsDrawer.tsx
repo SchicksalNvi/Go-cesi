@@ -12,13 +12,13 @@ import {
   Tabs,
 } from 'antd';
 import {
-  BellOutlined,
-  ClusterOutlined,
-  LockOutlined,
-  MailOutlined,
-  SaveOutlined,
-  UserOutlined,
-} from '@ant-design/icons';
+  Bell,
+  Boxes,
+  Lock,
+  Mail,
+  Save,
+  User,
+} from 'lucide-react';
 
 interface UserSettingsDrawerProps {
   t: any;
@@ -73,11 +73,11 @@ const UserSettingsDrawer: React.FC<UserSettingsDrawerProps> = ({
         items={[
           {
             key: 'profile',
-            label: <span><UserOutlined /> {t.users.profile}</span>,
+            label: <span><User size={14} strokeWidth={1.7} /> {t.users.profile}</span>,
             children: (
               <Form form={profileForm} layout="vertical">
                 <Form.Item name="username" label={t.users.username}>
-                  <Input prefix={<UserOutlined />} disabled />
+                  <Input prefix={<User size={14} strokeWidth={1.7} />} disabled />
                 </Form.Item>
                 <Form.Item
                   name="email"
@@ -87,7 +87,7 @@ const UserSettingsDrawer: React.FC<UserSettingsDrawerProps> = ({
                     { type: 'email', message: t.users.pleaseEnterValidEmail },
                   ]}
                 >
-                  <Input prefix={<MailOutlined />} />
+                  <Input prefix={<Mail size={14} strokeWidth={1.7} />} />
                 </Form.Item>
                 <Form.Item name="full_name" label={t.users.fullName}>
                   <Input placeholder={t.users.enterFullName} />
@@ -116,7 +116,7 @@ const UserSettingsDrawer: React.FC<UserSettingsDrawerProps> = ({
                   </>
                 )}
                 <Form.Item>
-                  <Button type="primary" icon={<SaveOutlined />} onClick={onProfileUpdate} loading={saving}>
+                  <Button type="primary" icon={<Save size={14} strokeWidth={1.7} />} onClick={onProfileUpdate} loading={saving}>
                     {t.users.saveProfile}
                   </Button>
                 </Form.Item>
@@ -125,7 +125,7 @@ const UserSettingsDrawer: React.FC<UserSettingsDrawerProps> = ({
           },
           {
             key: 'security',
-            label: <span><LockOutlined /> {t.users.security}</span>,
+            label: <span><Lock size={14} strokeWidth={1.7} /> {t.users.security}</span>,
             children: (
               <Form form={passwordForm} layout="vertical">
                 <Form.Item
@@ -136,7 +136,7 @@ const UserSettingsDrawer: React.FC<UserSettingsDrawerProps> = ({
                     { min: 6, message: t.users.passwordMinLength },
                   ]}
                 >
-                  <Input.Password prefix={<LockOutlined />} placeholder={t.users.enterNewPassword} />
+                  <Input.Password prefix={<Lock size={14} strokeWidth={1.7} />} placeholder={t.users.enterNewPassword} />
                 </Form.Item>
                 <Form.Item
                   name="confirm_password"
@@ -154,10 +154,10 @@ const UserSettingsDrawer: React.FC<UserSettingsDrawerProps> = ({
                     }),
                   ]}
                 >
-                  <Input.Password prefix={<LockOutlined />} placeholder={t.users.confirmNewPassword} />
+                  <Input.Password prefix={<Lock size={14} strokeWidth={1.7} />} placeholder={t.users.confirmNewPassword} />
                 </Form.Item>
                 <Form.Item>
-                  <Button type="primary" icon={<SaveOutlined />} onClick={onPasswordChange} loading={saving}>
+                  <Button type="primary" icon={<Save size={14} strokeWidth={1.7} />} onClick={onPasswordChange} loading={saving}>
                     {t.users.resetPassword}
                   </Button>
                 </Form.Item>
@@ -166,7 +166,7 @@ const UserSettingsDrawer: React.FC<UserSettingsDrawerProps> = ({
           },
           {
             key: 'notifications',
-            label: <span><BellOutlined /> {t.users.notifications}</span>,
+            label: <span><Bell size={14} strokeWidth={1.7} /> {t.users.notifications}</span>,
             children: (
               <Form form={notificationForm} layout="vertical">
                 <Form.Item name="email_notifications" label={t.users.emailNotifications} valuePropName="checked">
@@ -187,7 +187,7 @@ const UserSettingsDrawer: React.FC<UserSettingsDrawerProps> = ({
                   <Switch />
                 </Form.Item>
                 <Form.Item>
-                  <Button type="primary" icon={<SaveOutlined />} onClick={onNotificationUpdate} loading={saving}>
+                  <Button type="primary" icon={<Save size={14} strokeWidth={1.7} />} onClick={onNotificationUpdate} loading={saving}>
                     {t.users.savePreferences}
                   </Button>
                 </Form.Item>
@@ -196,7 +196,7 @@ const UserSettingsDrawer: React.FC<UserSettingsDrawerProps> = ({
           },
           ...(isAdmin ? [{
             key: 'node-access',
-            label: <span><ClusterOutlined /> {t.users.nodeAccess}</span>,
+            label: <span><Boxes size={14} strokeWidth={1.7} /> {t.users.nodeAccess}</span>,
             children: (
               <Space direction="vertical" size="middle" style={{ width: '100%' }}>
                 <Alert
@@ -230,7 +230,7 @@ const UserSettingsDrawer: React.FC<UserSettingsDrawerProps> = ({
                 />
                 <Button
                   type="primary"
-                  icon={<SaveOutlined />}
+                  icon={<Save size={14} strokeWidth={1.7} />}
                   onClick={onNodeAccessUpdate}
                   loading={nodeAccessLoading}
                 >

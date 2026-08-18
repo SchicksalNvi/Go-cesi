@@ -1,5 +1,5 @@
 import { Form, Input, Modal, Switch } from 'antd';
-import { LockOutlined, MailOutlined, UserOutlined } from '@ant-design/icons';
+import { Lock, Mail, User } from 'lucide-react';
 
 interface CreateUserModalProps {
   open: boolean;
@@ -33,7 +33,7 @@ const CreateUserModal: React.FC<CreateUserModalProps> = ({
             { min: 3, max: 50, message: t.users.usernameLength },
           ]}
         >
-          <Input prefix={<UserOutlined />} placeholder={t.users.username} />
+          <Input prefix={<User size={14} strokeWidth={1.7} />} placeholder={t.users.username} />
         </Form.Item>
         <Form.Item
           name="email"
@@ -43,7 +43,7 @@ const CreateUserModal: React.FC<CreateUserModalProps> = ({
             { type: 'email', message: t.users.pleaseEnterValidEmail },
           ]}
         >
-          <Input prefix={<MailOutlined />} placeholder={t.users.email} />
+          <Input prefix={<Mail size={14} strokeWidth={1.7} />} placeholder={t.users.email} />
         </Form.Item>
         <Form.Item name="full_name" label={t.users.fullName}>
           <Input placeholder={t.users.fullName} />
@@ -56,7 +56,7 @@ const CreateUserModal: React.FC<CreateUserModalProps> = ({
             { min: 6, message: t.users.passwordMinLength },
           ]}
         >
-          <Input.Password prefix={<LockOutlined />} placeholder={t.users.password} />
+          <Input.Password prefix={<Lock size={14} strokeWidth={1.7} />} placeholder={t.users.password} />
         </Form.Item>
         <Form.Item name="is_admin" label={t.users.role} valuePropName="checked">
           <Switch checkedChildren={t.users.admin} unCheckedChildren={t.users.user} />

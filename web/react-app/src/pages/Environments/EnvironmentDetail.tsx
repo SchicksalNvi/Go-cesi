@@ -12,11 +12,11 @@ import {
   Radio,
 } from 'antd';
 import {
-  ArrowLeftOutlined,
-  ReloadOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-} from '@ant-design/icons';
+  ArrowLeft,
+  RefreshCw,
+  CheckCircle2,
+  XCircle,
+} from 'lucide-react';
 import type { RadioChangeEvent } from 'antd';
 import { environmentsApi } from '@/api/environments';
 import { useWebSocket } from '@/hooks/useWebSocket';
@@ -125,7 +125,7 @@ export default function EnvironmentDetail() {
       key: 'status',
       render: (isConnected: boolean) => (
         <Tag
-          icon={isConnected ? <CheckCircleOutlined /> : <CloseCircleOutlined />}
+          icon={isConnected ? <CheckCircle2 size={14} strokeWidth={1.7} /> : <XCircle size={14} strokeWidth={1.7} />}
           color={isConnected ? 'success' : 'error'}
         >
           {isConnected ? t.nodes.online : t.nodes.offline}
@@ -190,7 +190,7 @@ export default function EnvironmentDetail() {
         <div>
           <Space>
             <Button
-              icon={<ArrowLeftOutlined />}
+              icon={<ArrowLeft size={14} strokeWidth={1.7} />}
               onClick={() => navigate('/environments')}
             >
               {t.common.back}
@@ -205,7 +205,7 @@ export default function EnvironmentDetail() {
         </div>
         <Button
           type="primary"
-          icon={<ReloadOutlined />}
+          icon={<RefreshCw size={14} strokeWidth={1.7} />}
           onClick={loadEnvironmentDetail}
           loading={loading}
         >
@@ -228,10 +228,10 @@ export default function EnvironmentDetail() {
                   {t.common.all} ({environment.members.length})
                 </Radio.Button>
                 <Radio.Button value="online">
-                  <CheckCircleOutlined style={{ color: '#52c41a' }} /> {t.nodes.online} ({environment.members.filter(n => n.is_connected).length})
+                  <CheckCircle2 size={14} strokeWidth={1.7} style={{ color: '#52c41a' }} /> {t.nodes.online} ({environment.members.filter(n => n.is_connected).length})
                 </Radio.Button>
                 <Radio.Button value="offline">
-                  <CloseCircleOutlined style={{ color: '#ff4d4f' }} /> {t.nodes.offline} ({environment.members.filter(n => !n.is_connected).length})
+                  <XCircle size={14} strokeWidth={1.7} style={{ color: '#ff4d4f' }} /> {t.nodes.offline} ({environment.members.filter(n => !n.is_connected).length})
                 </Radio.Button>
               </Radio.Group>
             </div>

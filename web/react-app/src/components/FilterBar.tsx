@@ -1,6 +1,6 @@
 import React from 'react';
 import { Space, Select, Button, Tag, InputNumber } from 'antd';
-import { ClearOutlined } from '@ant-design/icons';
+import { Eraser } from 'lucide-react';
 
 export interface NodeFilters {
   status?: 'online' | 'offline';
@@ -127,7 +127,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
         {hasActiveFilters && (
           <Button
             type="text"
-            icon={<ClearOutlined />}
+            icon={<Eraser size={14} strokeWidth={1.7} />}
             onClick={clearAllFilters}
             size={size}
             aria-label="Clear all filters"

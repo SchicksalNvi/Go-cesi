@@ -16,12 +16,12 @@ import {
   Modal,
 } from 'antd';
 import {
-  ReloadOutlined,
-  SearchOutlined,
-  PlayCircleOutlined,
-  StopOutlined,
-  InfoCircleOutlined,
-} from '@ant-design/icons';
+  RefreshCw,
+  Search as SearchIcon,
+  PlayCircle,
+  Square,
+  Info,
+} from 'lucide-react';
 import { processesApi } from '@/api/processes';
 import { AggregatedProcess, BatchOperationResult } from '@/types';
 import { useWebSocket } from '@/hooks/useWebSocket';
@@ -175,7 +175,7 @@ const ProcessesPage: React.FC = () => {
         <h1 style={{ margin: 0 }}>{t.processes.title}</h1>
         <Button
           type="primary"
-          icon={<ReloadOutlined />}
+          icon={<RefreshCw size={14} strokeWidth={1.7} />}
           onClick={loadProcesses}
           loading={loading}
         >
@@ -187,7 +187,7 @@ const ProcessesPage: React.FC = () => {
         <Search
           placeholder={t.common.search + '...'}
           allowClear
-          enterButton={<SearchOutlined />}
+          enterButton={<SearchIcon size={14} strokeWidth={1.7} />}
           size="large"
           onSearch={handleSearch}
           onChange={(e) => handleSearch(e.target.value)}
@@ -221,7 +221,7 @@ const ProcessesPage: React.FC = () => {
                   <Button
                     type="primary"
                     size="small"
-                    icon={<PlayCircleOutlined />}
+                    icon={<PlayCircle size={14} strokeWidth={1.7} />}
                     onClick={() => handleBatchOperation(proc.name, 'start')}
                     loading={actionLoading[`${proc.name}-start`]}
                     disabled={proc.running_instances === proc.total_instances}
@@ -236,7 +236,7 @@ const ProcessesPage: React.FC = () => {
                   >
                     <Button
                       size="small"
-                      icon={<StopOutlined />}
+                      icon={<Square size={14} strokeWidth={1.7} />}
                       loading={actionLoading[`${proc.name}-stop`]}
                       disabled={proc.running_instances === 0}
                       danger
@@ -246,7 +246,7 @@ const ProcessesPage: React.FC = () => {
                   </Popconfirm>
                   <Button
                     size="small"
-                    icon={<ReloadOutlined />}
+                    icon={<RefreshCw size={14} strokeWidth={1.7} />}
                     onClick={() => handleBatchOperation(proc.name, 'restart')}
                     loading={actionLoading[`${proc.name}-restart`]}
                   >
@@ -260,14 +260,14 @@ const ProcessesPage: React.FC = () => {
                   <Statistic
                     title={t.common.total}
                     value={proc.total_instances}
-                    prefix={<InfoCircleOutlined />}
+                    prefix={<Info size={14} strokeWidth={1.7} />}
                   />
                 </Col>
                 <Col xs={24} sm={8}>
                   <Statistic
                     title={t.processes.running}
                     value={proc.running_instances}
-                    prefix={<PlayCircleOutlined />}
+                    prefix={<PlayCircle size={14} strokeWidth={1.7} />}
                     valueStyle={{ color: '#52c41a' }}
                   />
                 </Col>
@@ -275,7 +275,7 @@ const ProcessesPage: React.FC = () => {
                   <Statistic
                     title={t.processes.stopped}
                     value={proc.stopped_instances}
-                    prefix={<StopOutlined />}
+                    prefix={<Square size={14} strokeWidth={1.7} />}
                     valueStyle={{ color: '#ff4d4f' }}
                   />
                 </Col>

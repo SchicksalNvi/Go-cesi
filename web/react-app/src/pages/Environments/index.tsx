@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Card, Row, Col, Button, Spin, Empty, message } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { environmentsApi } from '@/api/environments';
 import { useWebSocket } from '@/hooks/useWebSocket';
@@ -66,7 +66,7 @@ export default function EnvironmentList() {
         </div>
         <Button
           type="primary"
-          icon={<ReloadOutlined />}
+          icon={<RefreshCw size={14} strokeWidth={1.7} />}
           onClick={loadEnvironments}
           loading={loading}
         >

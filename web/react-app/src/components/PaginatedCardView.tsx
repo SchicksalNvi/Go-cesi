@@ -1,9 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { Row, Col, Pagination, Card, Tag, Button, Space, Alert } from 'antd';
 import {
-  CheckCircleOutlined,
-  EyeOutlined,
-} from '@ant-design/icons';
+  CheckCircle2,
+  Eye,
+} from 'lucide-react';
 import { Node } from '@/types';
 import { useStore } from '@/store';
 
@@ -169,7 +169,7 @@ function NodeCard({
                 justifyContent: 'center',
               }}
             >
-              <CheckCircleOutlined style={{ fontSize: 24, color: '#1890ff' }} />
+              <CheckCircle2 size={24} strokeWidth={1.7} style={{ color: '#1890ff' }} />
             </div>
             <div>
               <h3 style={{ margin: 0, fontSize: 18 }}>
@@ -233,7 +233,7 @@ function NodeCard({
         <Button
           type="primary"
           block
-          icon={<EyeOutlined />}
+          icon={<Eye size={14} strokeWidth={1.7} />}
           onClick={(e) => {
             e.stopPropagation();
             onView();

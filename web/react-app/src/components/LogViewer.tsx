@@ -11,13 +11,7 @@ import {
   Input,
   Select,
 } from 'antd';
-import {
-  PlayCircleOutlined,
-  PauseCircleOutlined,
-  ClearOutlined,
-  DownloadOutlined,
-  SearchOutlined,
-} from '@ant-design/icons';
+import { PlayCircle, PauseCircle, Eraser, Download, Search as SearchIcon } from 'lucide-react';
 import { nodesApi } from '@/api/nodes';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { LogEntry, LogStreamMessage } from '@/types';
@@ -266,8 +260,8 @@ const LogViewer: React.FC<LogViewerProps> = ({
               checked={realTimeEnabled}
               onChange={toggleRealTime}
               disabled={!isConnected}
-              checkedChildren={<PlayCircleOutlined />}
-              unCheckedChildren={<PauseCircleOutlined />}
+              checkedChildren={<PlayCircle size={14} strokeWidth={1.7} />}
+              unCheckedChildren={<PauseCircle size={14} strokeWidth={1.7} />}
             />
           </Space>
           
@@ -285,7 +279,7 @@ const LogViewer: React.FC<LogViewerProps> = ({
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             style={{ width: 200 }}
-            prefix={<SearchOutlined />}
+            prefix={<SearchIcon size={14} strokeWidth={1.7} />}
             allowClear
           />
 
@@ -304,7 +298,7 @@ const LogViewer: React.FC<LogViewerProps> = ({
           </Select>
 
           <Button
-            icon={<ClearOutlined />}
+            icon={<Eraser size={14} strokeWidth={1.7} />}
             onClick={clearLogs}
             size="small"
           >
@@ -312,7 +306,7 @@ const LogViewer: React.FC<LogViewerProps> = ({
           </Button>
 
           <Button
-            icon={<DownloadOutlined />}
+            icon={<Download size={14} strokeWidth={1.7} />}
             onClick={exportLogs}
             size="small"
           >

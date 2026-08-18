@@ -16,14 +16,13 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@ant-design/icons": "^5.2.6",
-    "@ant-design/pro-components": "^2.6.43",
     "@types/react-window": "^1.8.8",
     "antd": "^5.11.5",
     "axios": "^1.6.2",
     "dayjs": "^1.11.10",
     "echarts": "^5.4.3",
     "echarts-for-react": "^3.0.2",
+    "lucide-react": "^1.31.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.20.1",
@@ -41,6 +40,7 @@
     "eslint": "^8.55.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.5",
+    "tslib": "^2.8.1",
     "typescript": "^5.3.3",
     "vite": "^5.0.8"
   }

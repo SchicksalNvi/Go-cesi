@@ -1,10 +1,7 @@
 import React, { Suspense, lazy, useMemo, useState } from 'react';
 import { Table, Tag, Button, Space, Tooltip, Typography, Alert } from 'antd';
 import type { ColumnsType, TableProps } from 'antd/es/table';
-import {
-  EyeOutlined,
-  ReloadOutlined,
-} from '@ant-design/icons';
+import { Eye, RefreshCw } from 'lucide-react';
 import { Node } from '@/types';
 import { useStore } from '@/store';
 
@@ -222,7 +219,7 @@ export const NodesListView: React.FC<NodesListViewProps> = ({
             <Button
               type="text"
               size="small"
-              icon={<EyeOutlined />}
+              icon={<Eye size={14} strokeWidth={1.7} />}
               onClick={(e) => {
                 e.stopPropagation();
                 onNodeClick(record.name);
@@ -234,7 +231,7 @@ export const NodesListView: React.FC<NodesListViewProps> = ({
               <Button
                 type="text"
                 size="small"
-                icon={<ReloadOutlined />}
+                icon={<RefreshCw size={14} strokeWidth={1.7} />}
                 onClick={(e) => {
                   e.stopPropagation();
                   onRefreshNode(record.name);

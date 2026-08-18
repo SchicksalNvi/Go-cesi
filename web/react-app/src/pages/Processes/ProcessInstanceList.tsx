@@ -8,11 +8,11 @@ import {
   message,
 } from 'antd';
 import {
-  PlayCircleOutlined,
-  StopOutlined,
-  ReloadOutlined,
-  FileTextOutlined,
-} from '@ant-design/icons';
+  PlayCircle,
+  Square,
+  RefreshCw,
+  FileText,
+} from 'lucide-react';
 import { ProcessInstance } from '@/types';
 import { nodesApi } from '@/api/nodes';
 import LogViewer from '@/components/LogViewer';
@@ -136,7 +136,7 @@ const ProcessInstanceList: React.FC<ProcessInstanceListProps> = ({
             <Button
               type="primary"
               size="small"
-              icon={<PlayCircleOutlined />}
+              icon={<PlayCircle size={14} strokeWidth={1.7} />}
               onClick={() => handleInstanceAction(record, 'start')}
               loading={actionLoading[`${record.node_name}-${processName}-start`]}
             >
@@ -152,7 +152,7 @@ const ProcessInstanceList: React.FC<ProcessInstanceListProps> = ({
             >
               <Button
                 size="small"
-                icon={<StopOutlined />}
+                icon={<Square size={14} strokeWidth={1.7} />}
                 loading={actionLoading[`${record.node_name}-${processName}-stop`]}
                 danger
               >
@@ -162,7 +162,7 @@ const ProcessInstanceList: React.FC<ProcessInstanceListProps> = ({
           )}
           <Button
             size="small"
-            icon={<ReloadOutlined />}
+            icon={<RefreshCw size={14} strokeWidth={1.7} />}
             onClick={() => handleInstanceAction(record, 'restart')}
             loading={actionLoading[`${record.node_name}-${processName}-restart`]}
           >
@@ -170,7 +170,7 @@ const ProcessInstanceList: React.FC<ProcessInstanceListProps> = ({
           </Button>
           <Button
             size="small"
-            icon={<FileTextOutlined />}
+            icon={<FileText size={14} strokeWidth={1.7} />}
             onClick={() => handleViewLogs(record)}
           >
             {t.logs.title}

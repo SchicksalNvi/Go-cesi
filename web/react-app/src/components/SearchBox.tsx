@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Input } from 'antd';
-import { SearchOutlined } from '@ant-design/icons';
+import { Search } from 'lucide-react';
 
 interface SearchBoxProps {
   value: string;
@@ -50,7 +50,7 @@ export const SearchBox: React.FC<SearchBoxProps> = ({
 
   return (
     <Input
-      prefix={<SearchOutlined />}
+      prefix={<Search size={14} strokeWidth={1.7} />}
       placeholder={placeholder}
       value={localValue}
       onChange={handleChange}

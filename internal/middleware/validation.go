@@ -175,7 +175,9 @@ func (vm *ValidationMiddleware) SecurityHeaders() gin.HandlerFunc {
 		// 且图标多使用 data:URI。因此 style-src 必须含 'unsafe-inline'(运行时生成的
 		// 样式哈希不可预测,无法用固定 hash 覆盖),img-src 需允许 data:。
 		// script-src 仍由 default-src 'self' 约束,保持严格。
-		c.Header("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'")
+		// 前端通过 Google Fonts 加载设计字体(Space Grotesk / Inter / JetBrains Mono):
+		// style-src 放行 fonts.googleapis.com 的样式表,font-src 放行字体文件。
+		c.Header("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'")
 		
 		c.Next()
 	}

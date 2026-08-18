@@ -18,13 +18,13 @@ import {
   Spin,
 } from 'antd';
 import {
-  SaveOutlined,
-  DatabaseOutlined,
-  ReloadOutlined,
-  PlusOutlined,
-  FileZipOutlined,
-  InboxOutlined,
-} from '@ant-design/icons';
+  Save,
+  Database,
+  RefreshCw,
+  Plus,
+  FileArchive,
+  Inbox,
+} from 'lucide-react';
 import { useStore } from '@/store';
 import { settingsApi, SystemSettings } from '@/api/settings';
 import {
@@ -530,14 +530,14 @@ const Settings: React.FC = () => {
             <Space>
               <Button
                 type="primary"
-                icon={<SaveOutlined />}
+                icon={<Save size={14} strokeWidth={1.7} />}
                 onClick={handleSystemUpdate}
                 loading={loading}
               >
                 {t.settings.saveSettings}
               </Button>
               <Button
-                icon={<DatabaseOutlined />}
+                icon={<Database size={14} strokeWidth={1.7} />}
                 onClick={openBackupModal}
               >
                 {t.settings.backupNow}
@@ -552,7 +552,7 @@ const Settings: React.FC = () => {
         extra={
           <Space>
             <Button
-              icon={<ReloadOutlined />}
+              icon={<RefreshCw size={14} strokeWidth={1.7} />}
               onClick={() => loadExports(exportPage, exportPageSize)}
               loading={exportsLoading}
             >
@@ -560,7 +560,7 @@ const Settings: React.FC = () => {
             </Button>
             <Button
               type="primary"
-              icon={<FileZipOutlined />}
+              icon={<FileArchive size={14} strokeWidth={1.7} />}
               onClick={openExportModal}
             >
               {t.settings.createExport}
@@ -608,7 +608,7 @@ const Settings: React.FC = () => {
         extra={
           <Space>
             <Button
-              icon={<ReloadOutlined />}
+              icon={<RefreshCw size={14} strokeWidth={1.7} />}
               onClick={() => loadImports(importPage, importPageSize)}
               loading={importsLoading}
             >
@@ -616,7 +616,7 @@ const Settings: React.FC = () => {
             </Button>
             <Button
               type="primary"
-              icon={<InboxOutlined />}
+              icon={<Inbox size={14} strokeWidth={1.7} />}
               onClick={openImportModal}
             >
               {t.settings.createImport}
@@ -664,7 +664,7 @@ const Settings: React.FC = () => {
         extra={
           <Space>
             <Button
-              icon={<ReloadOutlined />}
+              icon={<RefreshCw size={14} strokeWidth={1.7} />}
               onClick={() => loadBackups(backupPage, backupPageSize)}
               loading={backupsLoading}
             >
@@ -672,7 +672,7 @@ const Settings: React.FC = () => {
             </Button>
             <Button
               type="primary"
-              icon={<PlusOutlined />}
+              icon={<Plus size={14} strokeWidth={1.7} />}
               onClick={openBackupModal}
             >
               {t.settings.createBackup}
@@ -802,7 +802,7 @@ const Settings: React.FC = () => {
               fileList={importFileList}
               onChange={({ fileList }) => setImportFileList(fileList)}
             >
-              <Button icon={<InboxOutlined />}>{t.settings.selectImportFile}</Button>
+              <Button icon={<Inbox size={14} strokeWidth={1.7} />}>{t.settings.selectImportFile}</Button>
             </Upload>
           </Form.Item>
         </Form>

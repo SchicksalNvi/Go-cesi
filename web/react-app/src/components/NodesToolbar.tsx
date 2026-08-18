@@ -1,12 +1,12 @@
 import React from 'react';
 import { Space, Button, Divider, Typography, Alert } from 'antd';
-import { 
-  ReloadOutlined, 
-  PlayCircleOutlined, 
-  StopOutlined,
-  SyncOutlined,
-  DeleteOutlined,
-} from '@ant-design/icons';
+import {
+  RefreshCw,
+  PlayCircle,
+  Square,
+  RefreshCcw,
+  Trash2,
+} from 'lucide-react';
 import { ViewToggle, ViewMode } from './ViewToggle';
 import { SearchBox } from './SearchBox';
 import { FilterBar, NodeFilters } from './FilterBar';
@@ -119,7 +119,7 @@ export const NodesToolbar: React.FC<NodesToolbarProps> = ({
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <Button
             type="primary"
-            icon={<ReloadOutlined />}
+            icon={<RefreshCw size={14} strokeWidth={1.7} />}
             onClick={onRefreshAll}
             loading={loading}
           >
@@ -180,28 +180,28 @@ export const NodesToolbar: React.FC<NodesToolbarProps> = ({
               <Space size="small" wrap>
                 <Button
                   size="small"
-                  icon={<PlayCircleOutlined />}
+                  icon={<PlayCircle size={14} strokeWidth={1.7} />}
                   onClick={() => handleBulkAction('start_all')}
                 >
                   {t.nodesToolbar.startAllProcesses}
                 </Button>
                 <Button
                   size="small"
-                  icon={<StopOutlined />}
+                  icon={<Square size={14} strokeWidth={1.7} />}
                   onClick={() => handleBulkAction('stop_all')}
                 >
                   {t.nodesToolbar.stopAllProcesses}
                 </Button>
                 <Button
                   size="small"
-                  icon={<SyncOutlined />}
+                  icon={<RefreshCcw size={14} strokeWidth={1.7} />}
                   onClick={() => handleBulkAction('restart_all')}
                 >
                   {t.nodesToolbar.restartAllProcesses}
                 </Button>
                 <Button
                   size="small"
-                  icon={<ReloadOutlined />}
+                  icon={<RefreshCw size={14} strokeWidth={1.7} />}
                   onClick={() => handleBulkAction('refresh_all')}
                 >
                   {t.nodesToolbar.refreshStatus}
@@ -210,7 +210,7 @@ export const NodesToolbar: React.FC<NodesToolbarProps> = ({
                 <Button
                   size="small"
                   danger
-                  icon={<DeleteOutlined />}
+                  icon={<Trash2 size={14} strokeWidth={1.7} />}
                   onClick={() => handleBulkAction('delete_selected')}
                 >
                   {t.nodesToolbar.removeSelected}

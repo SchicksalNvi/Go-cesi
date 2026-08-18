@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Button, Card, Col, Form, Input, Row, Space, Typography, message } from 'antd';
-import { LockOutlined, MailOutlined, SaveOutlined, UserOutlined } from '@ant-design/icons';
+import { Lock, Mail, Save, User } from 'lucide-react';
 import { authApi } from '@/api/auth';
 import { useStore } from '@/store';
 
@@ -110,14 +110,14 @@ export default function Profile() {
           <Card
             title={t.profile.personalInfo}
             extra={
-              <Button icon={<SaveOutlined />} onClick={loadProfile} loading={loadingProfile}>
+              <Button icon={<Save size={14} strokeWidth={1.7} />} onClick={loadProfile} loading={loadingProfile}>
                 {t.common.refresh}
               </Button>
             }
           >
             <Form form={profileForm} layout="vertical">
               <Form.Item label={t.users.username} name="username">
-                <Input prefix={<UserOutlined />} disabled />
+                <Input prefix={<User size={14} strokeWidth={1.7} />} disabled />
               </Form.Item>
 
               <Form.Item
@@ -128,20 +128,20 @@ export default function Profile() {
                   { type: 'email', message: t.users.pleaseEnterValidEmail },
                 ]}
               >
-                <Input prefix={<MailOutlined />} />
+                <Input prefix={<Mail size={14} strokeWidth={1.7} />} />
               </Form.Item>
 
               <Form.Item
                 label={t.users.fullName}
                 name="full_name"
               >
-                <Input prefix={<UserOutlined />} placeholder={t.users.enterFullName} />
+                <Input prefix={<User size={14} strokeWidth={1.7} />} placeholder={t.users.enterFullName} />
               </Form.Item>
 
               <Form.Item>
                 <Button
                   type="primary"
-                  icon={<SaveOutlined />}
+                  icon={<Save size={14} strokeWidth={1.7} />}
                   onClick={handleProfileSubmit}
                   loading={savingProfile}
                 >
@@ -167,7 +167,7 @@ export default function Profile() {
                 name="old_password"
                 rules={[{ required: true, message: t.profile.enterCurrentPassword }]}
               >
-                <Input.Password prefix={<LockOutlined />} />
+                <Input.Password prefix={<Lock size={14} strokeWidth={1.7} />} />
               </Form.Item>
 
               <Form.Item
@@ -178,7 +178,7 @@ export default function Profile() {
                   { min: 6, message: t.users.passwordMinLength },
                 ]}
               >
-                <Input.Password prefix={<LockOutlined />} />
+                <Input.Password prefix={<Lock size={14} strokeWidth={1.7} />} />
               </Form.Item>
 
               <Form.Item
@@ -197,14 +197,14 @@ export default function Profile() {
                   }),
                 ]}
               >
-                <Input.Password prefix={<LockOutlined />} />
+                <Input.Password prefix={<Lock size={14} strokeWidth={1.7} />} />
               </Form.Item>
 
               <Form.Item>
                 <Space direction="vertical" style={{ width: '100%' }}>
                   <Button
                     type="primary"
-                    icon={<LockOutlined />}
+                    icon={<Lock size={14} strokeWidth={1.7} />}
                     onClick={handlePasswordSubmit}
                     loading={savingPassword}
                   >

@@ -13,12 +13,12 @@ import {
   Spin,
 } from 'antd';
 import {
-  PlusOutlined,
-  DeleteOutlined,
-  ReloadOutlined,
-  UserOutlined,
-  SettingOutlined,
-} from '@ant-design/icons';
+  Plus,
+  Trash2,
+  RefreshCw,
+  User as UserIcon,
+  Settings,
+} from 'lucide-react';
 import type { ColumnsType } from 'antd/es/table';
 import { usersApi, User, CreateUserRequest, AvailableNode, UserNodeAccess } from '../../api/users';
 import { useStore } from '../../store';
@@ -402,7 +402,7 @@ const Users: React.FC = () => {
       key: 'user',
       render: (_, record) => (
         <Space>
-          <Avatar icon={<UserOutlined />} />
+          <Avatar icon={<UserIcon size={14} strokeWidth={1.7} />} />
           <div>
             <div style={{ fontWeight: 500 }}>{record.username}</div>
             <div style={{ fontSize: '12px', color: '#999' }}>{record.email}</div>
@@ -449,7 +449,7 @@ const Users: React.FC = () => {
         <Space>
           <Button
             type="link"
-            icon={<SettingOutlined />}
+            icon={<Settings size={14} strokeWidth={1.7} />}
             onClick={() => handleUserSettings(record)}
           >
             {t.nav.settings}
@@ -463,7 +463,7 @@ const Users: React.FC = () => {
               cancelText={t.common.no}
               disabled={record.is_admin}
             >
-              <Button type="link" danger icon={<DeleteOutlined />} disabled={record.is_admin}>
+              <Button type="link" danger icon={<Trash2 size={14} strokeWidth={1.7} />} disabled={record.is_admin}>
                 {t.common.delete}
               </Button>
             </Popconfirm>
@@ -479,11 +479,11 @@ const Users: React.FC = () => {
         title={t.users.title}
         extra={
           <Space>
-            <Button icon={<ReloadOutlined />} onClick={loadUsers} loading={loading}>
+            <Button icon={<RefreshCw size={14} strokeWidth={1.7} />} onClick={loadUsers} loading={loading}>
               {t.common.refresh}
             </Button>
             {isAdmin && (
-              <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+              <Button type="primary" icon={<Plus size={14} strokeWidth={1.7} />} onClick={handleCreate}>
                 {t.users.addUser}
               </Button>
             )}

@@ -1,4 +1,5 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
+import { Lightbulb } from 'lucide-react';
 import { Card, Button, Spin, Empty, message } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { nodesApi } from '@/api/nodes';
@@ -159,7 +160,7 @@ function NodeList() {
                 fontSize: 12,
                 color: '#d46b08'
               }}>
-                💡 {rec}
+                <Lightbulb size={15} strokeWidth={1.7} /> {rec}
               </div>
             ))}
           </div>

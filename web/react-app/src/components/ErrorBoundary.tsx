@@ -1,6 +1,6 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { Result, Button } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { RefreshCw } from 'lucide-react';
 
 interface Props {
   children: ReactNode;
@@ -49,7 +49,7 @@ export class ErrorBoundary extends Component<Props, State> {
           extra={[
             <Button 
               type="primary" 
-              icon={<ReloadOutlined />} 
+              icon={<RefreshCw size={14} strokeWidth={1.7} />} 
               onClick={this.handleRetry}
               key="retry"
             >

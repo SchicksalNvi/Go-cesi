@@ -17,17 +17,17 @@ import {
   Statistic,
 } from 'antd';
 import {
-  ArrowLeftOutlined,
-  PlayCircleOutlined,
-  StopOutlined,
-  ReloadOutlined,
-  FileTextOutlined,
-  InfoCircleOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-  EditOutlined,
-  SaveOutlined,
-} from '@ant-design/icons';
+  ArrowLeft,
+  PlayCircle,
+  Square,
+  RefreshCw,
+  FileText,
+  Info,
+  CheckCircle2,
+  XCircle,
+  Pencil,
+  Save,
+} from 'lucide-react';
 import { nodesApi } from '@/api/nodes';
 import { Node, Process } from '@/types';
 import LogViewer from '@/components/LogViewer';
@@ -212,7 +212,7 @@ const NodeDetail: React.FC = () => {
             <Button
               type="primary"
               size="small"
-              icon={<PlayCircleOutlined />}
+              icon={<PlayCircle size={14} strokeWidth={1.7} />}
               onClick={() => handleProcessAction(record.name, 'start')}
               loading={actionLoading[`${record.name}-start`]}
             >
@@ -228,7 +228,7 @@ const NodeDetail: React.FC = () => {
             >
               <Button
                 size="small"
-                icon={<StopOutlined />}
+                icon={<Square size={14} strokeWidth={1.7} />}
                 loading={actionLoading[`${record.name}-stop`]}
                 danger
               >
@@ -238,7 +238,7 @@ const NodeDetail: React.FC = () => {
           )}
           <Button
             size="small"
-            icon={<ReloadOutlined />}
+            icon={<RefreshCw size={14} strokeWidth={1.7} />}
             onClick={() => handleProcessAction(record.name, 'restart')}
             loading={actionLoading[`${record.name}-restart`]}
           >
@@ -246,7 +246,7 @@ const NodeDetail: React.FC = () => {
           </Button>
           <Button
             size="small"
-            icon={<FileTextOutlined />}
+            icon={<FileText size={14} strokeWidth={1.7} />}
             onClick={() => handleViewLogs(record)}
           >
             {t.logs.title}
@@ -276,23 +276,23 @@ const NodeDetail: React.FC = () => {
     <div>
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Space>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/nodes')}>
+          <Button icon={<ArrowLeft size={14} strokeWidth={1.7} />} onClick={() => navigate('/nodes')}>
             {t.common.back}
           </Button>
           <h1 style={{ margin: 0 }}>{t.nav.nodes}: {node.name}</h1>
           {node.is_connected ? (
-            <Tag icon={<CheckCircleOutlined />} color="success">
+            <Tag icon={<CheckCircle2 size={14} strokeWidth={1.7} />} color="success">
               {t.nodeDetail.connected}
             </Tag>
           ) : (
-            <Tag icon={<CloseCircleOutlined />} color="error">
+            <Tag icon={<XCircle size={14} strokeWidth={1.7} />} color="error">
               {t.nodeDetail.disconnected}
             </Tag>
           )}
         </Space>
         <Button
           type="primary"
-          icon={<ReloadOutlined />}
+          icon={<RefreshCw size={14} strokeWidth={1.7} />}
           onClick={loadNodeDetail}
           loading={loading}
         >
@@ -307,7 +307,7 @@ const NodeDetail: React.FC = () => {
             <Statistic
               title={t.nodeDetail.totalProcesses}
               value={totalProcesses}
-              prefix={<InfoCircleOutlined />}
+              prefix={<Info size={14} strokeWidth={1.7} />}
             />
           </Card>
         </Col>
@@ -316,7 +316,7 @@ const NodeDetail: React.FC = () => {
             <Statistic
               title={t.nodeDetail.running}
               value={runningProcesses}
-              prefix={<PlayCircleOutlined />}
+              prefix={<PlayCircle size={14} strokeWidth={1.7} />}
               valueStyle={{ color: '#52c41a' }}
             />
           </Card>
@@ -326,7 +326,7 @@ const NodeDetail: React.FC = () => {
             <Statistic
               title={t.nodeDetail.stopped}
               value={stoppedProcesses}
-              prefix={<StopOutlined />}
+              prefix={<Square size={14} strokeWidth={1.7} />}
               valueStyle={{ color: '#ff4d4f' }}
             />
           </Card>
@@ -367,12 +367,12 @@ const NodeDetail: React.FC = () => {
                     <Button onClick={() => setEditing(false)}>
                       {t.common.cancel}
                     </Button>
-                    <Button type="primary" icon={<SaveOutlined />} onClick={handleEditSave} loading={saving}>
+                    <Button type="primary" icon={<Save size={14} strokeWidth={1.7} />} onClick={handleEditSave} loading={saving}>
                       {t.common.save}
                     </Button>
                   </Space>
                 ) : (
-                  <Button icon={<EditOutlined />} onClick={handleEditStart}>
+                  <Button icon={<Pencil size={14} strokeWidth={1.7} />} onClick={handleEditStart}>
                     {t.common.edit}
                   </Button>
                 )

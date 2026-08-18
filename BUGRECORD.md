@@ -15,7 +15,7 @@
 |---------|------|------|------|---------|
 | High    | 14   | 0    | 14   | 0       |
 | Medium  | 36   | 0    | 35   | 1       |
-| Low     | 14   | 0    | 14   | 0       |
+| Low     | 15   | 0    | 15   | 0       |
 
 ---
 
@@ -416,6 +416,19 @@
 - **影响**: 前端 UI 样式严重损坏,属真实功能缺陷。
 - **修复记录**: 2026-08-18 · CSP 改为 `default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'`。显式允许内联样式(运行时生成的样式哈希不可预测,无法用固定 hash 覆盖);`img-src` 补充 `data:`(antd 图标使用 data URI)。`script-src` 仍由 `default-src 'self'` 约束保持严格。重建后端并重启,`curl -I` 验证页面与 API 均返回新 CSP 头,前端 antd 资源 200 加载。
 
+### L-16 ✅ 前端按 `.agents/front.md` 重构为 Lucide + Obsidian 沉浸式视觉
+- **位置**: `web/react-app/src/` 全域(Index.css 设计系统、main.tsx、index.html、MainLayout、Login、Dashboard 及全部 20 余个页面/组件)
+- **问题**: 原前端为 antd 默认浅色主题,图标混用 `@ant-design/icons`,并存在 1 处表情符号(💡),视觉水准未达 `.agents/front.md` 要求的 Awwwards 级设计品质(先锋视觉、实验排版、流畅动效、沉浸式、Lucide 统一图标、禁用表情符号)。
+- **影响**: 界面视觉与品牌调性不统一,离顶级设计网站有差距;历史使用非 Lucide 图标、含 emoji。
+- **修复记录**: 2026-08-18 ·
+  - 新增 `index.css` 全域设计系统:暗色 "Obsidian glass" 主题(css 变量 tokens)、`--font-display/body/mono` 字体族、动效基元(sv-reveal/sv-float/sv-aurora)、glass 玻璃拟态组件、按钮、Ant Design 暗色覆盖(表格/卡片/Menu/Input/Modal/消息等)。
+  - `main.tsx` 引入 `theme.darkAlgorithm` + 自定义 design tokens;`index.html` 引入 Google Fonts(Space Grotesk / Inter / JetBrains Mono)。
+  - 后端 `validation.go` CSP 增量放行 `font-src https://fonts.gstatic.com` 与 `style-src ... https://fonts.googleapis.com`,同时保持 `script-src 'self'` 严格。
+  - `MainLayout` 重构为沉浸式玻璃侧栏(固定浮动、毛玻璃、折叠切换、状态脉冲);`Login` 重构为 Cinematic hero(极光光晕 + 浮动图标 + 玻璃卡片);`Dashboard` 重构为数据可视化优先(渐变文字页眉、发光状态点、环形健康度、玻璃指标卡)。
+  - 全部 23 个页面/组件将 `@ant-design/icons` 替换为 `lucide-react`(统一 `size`/`strokeWidth` 规范),并移除 Nodes/index.tsx:162 的表情符号 💡 → `<Lightbulb>`。
+  - 清理依赖:`@ant-design/icons`、`@ant-design/pro-components` 已无人引用,自 package.json 移除;`vite.config.ts` 删除对应 manualChunks;补装 `tslib` 以维持 echarts-for-react 解析。
+- **验证**: `npx tsc --noEmit`(0 错误)、`npm run build`(成功、无残余 antd-icons/antd-pro 死 chunk)、`go build ./...`(通过)、全量审计(0 表情符号、0 处 `@ant-design/icons`、0 处 `Outlined` 引用)、运行中服务 `curl` 验证登录/节点/Dashboard 数据端点 200、`curl -I` 确认新 CSP 头(含字体放行)已生效。经三轮检查(类型/构建、符号审计、全量+运行时复核)均无问题。
+
 ### L-13 ✅ WebSocket 节点 ACL 快照在节点权限撤销后不会刷新
 - **位置**: `internal/websocket/hub.go:1042-1059`(HandleWebSocket 中构建 `allowedNodeIDs` 快照)
 - **问题**: 第八轮复审发现。`HandleWebSocket` 在握手时查询 `NodeAccess` 构建 `allowedNodeIDs` 快照,该快照仅创建一次,永久缓存于 `Client` 结构。管理员通过 `UpdateUserNodeAccess` 撤销某节点的读取权限后,已建立 WebSocket 连接的 `allowedNodeIDs` 不被刷新,该客户端仍能持续通过实时推送(z.nodes_update、log_stream 等)收到被撤销节点的数据。REST API 不受影响(每请求重载用户)。
@@ -545,8 +558,8 @@
 
 ---
 
-_最后更新:2026-08-07 · 第五轮复审(工作区:H-05/H-06/H-12 修复)。共记录 60 项:41 TODO、18 DONE、1 WONTFIX;本轮新增 H-13/H-14、M-28～M-34、L-11/L-12。_
+_最后更新:2026-08-18 · 前端按 `.agents/front.md` 完成视觉重构(L-16)。共记录 65 项:0 TODO、64 DONE、1 WONTFIX(High 14、Medium 36、Low 15)。_
 
-_本轮验证状态:`go build ./...` 通过、`go vet ./...` 通过;`go test ./internal/...` 全部通过;`go test -race ./internal/auth ./internal/websocket ./internal/middleware` 通过;`npx tsc --noEmit` 通过(web/react-app)。tools/ 已添加 `//go:build ignore` 标签,`go build/vet/test ./...` 不再因此失败。_
+_本轮验证状态:`go build ./...` 通过、`go vet ./...` 通过;`npx tsc --noEmit` 通过(web/react-app)、`npm run build` 通过;全量审计无表情符号、无 `@ant-design/icons` 残留;运行中服务 `curl` 验证登录/数据端点 200,新 CSP 头(含字体放行)已生效。tools/ 已添加 `//go:build ignore` 标签,`go build/vet/test ./...` 不再因此失败。_
 
 _历史记录:2026-06-17 第三轮曾将除 M-07 外的原 18 项标记为已处理;2026-08-06 第四轮复核发现 H-05、M-01 只完成部分修复,重新打开;2026-08-07 第五轮评审 H-05/H-06/H-12 修复实现,确认 H-06 的 WS 会话吊销存在结构性通道问题(H-13/H-14),H-05 的流式解码引入数字类型回归(M-33),H-06 的并发乐观锁留了 is_admin 竞态窗口(M-29)。_

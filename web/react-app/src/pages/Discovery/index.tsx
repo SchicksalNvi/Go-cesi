@@ -23,18 +23,18 @@ import {
 } from 'antd';
 import type { TabsProps } from 'antd';
 import {
-  SearchOutlined,
-  StopOutlined,
-  DeleteOutlined,
-  ReloadOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-  ClockCircleOutlined,
-  ExclamationCircleOutlined,
-  EyeOutlined,
-  RadarChartOutlined,
-  LinkOutlined,
-} from '@ant-design/icons';
+  Search,
+  Square,
+  Trash2,
+  RefreshCw,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  CircleAlert,
+  Eye,
+  Radar,
+  Link,
+} from 'lucide-react';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -374,17 +374,17 @@ export default function DiscoveryPage() {
       render: (_, record) => (
         <Space>
           <Tooltip title={t.common.view}>
-            <Button type="text" icon={<EyeOutlined />} onClick={() => handleViewTask(record)} />
+            <Button type="text" icon={<Eye size={14} strokeWidth={1.7} />} onClick={() => handleViewTask(record)} />
           </Tooltip>
           {record.status === 'running' && (
             <Tooltip title={t.common.cancel}>
-              <Button type="text" danger icon={<StopOutlined />} onClick={() => handleCancelTask(record.id)} />
+              <Button type="text" danger icon={<Square size={14} strokeWidth={1.7} />} onClick={() => handleCancelTask(record.id)} />
             </Tooltip>
           )}
           {['completed', 'cancelled', 'failed'].includes(record.status) && (
             <Popconfirm title={t.discovery.confirmDeleteTask} onConfirm={() => handleDeleteTask(record.id)}>
               <Tooltip title={t.common.delete}>
-                <Button type="text" danger icon={<DeleteOutlined />} />
+                <Button type="text" danger icon={<Trash2 size={14} strokeWidth={1.7} />} />
               </Tooltip>
             </Popconfirm>
           )}
@@ -415,11 +415,11 @@ export default function DiscoveryPage() {
       render: (status: string, record: DiscoveryResult) => {
         const tag = (
           <Tag color={resultStatusColors[status] || 'default'}>
-            {status === 'success' && <CheckCircleOutlined />}
-            {status === 'timeout' && <ClockCircleOutlined />}
-            {status === 'connection_refused' && <CloseCircleOutlined />}
-            {status === 'auth_failed' && <ExclamationCircleOutlined />}
-            {status === 'error' && <ExclamationCircleOutlined />}
+            {status === 'success' && <CheckCircle2 size={14} strokeWidth={1.7} />}
+            {status === 'timeout' && <Clock size={14} strokeWidth={1.7} />}
+            {status === 'connection_refused' && <XCircle size={14} strokeWidth={1.7} />}
+            {status === 'auth_failed' && <CircleAlert size={14} strokeWidth={1.7} />}
+            {status === 'error' && <CircleAlert size={14} strokeWidth={1.7} />}
             {' '}{status.replace('_', ' ').toUpperCase()}
           </Tag>
         );
@@ -436,7 +436,7 @@ export default function DiscoveryPage() {
       key: 'node_name',
       render: (name: string, record: DiscoveryResult) =>
         name && record.status === 'success' ? (
-          <Button type="link" icon={<LinkOutlined />} onClick={() => navigate(`/nodes/${name}`)}>
+          <Button type="link" icon={<Link size={14} strokeWidth={1.7} />} onClick={() => navigate(`/nodes/${name}`)}>
             {name}
           </Button>
         ) : (
@@ -536,7 +536,7 @@ export default function DiscoveryPage() {
               type="primary"
               htmlType="submit"
               loading={loading}
-              icon={<SearchOutlined />}
+              icon={<Search size={14} strokeWidth={1.7} />}
               disabled={!cidrValidation?.valid}
             >
               {t.discovery.startScan}
@@ -554,7 +554,7 @@ export default function DiscoveryPage() {
                 type="success"
                 message={
                   <Space>
-                    <CheckCircleOutlined />
+                    <CheckCircle2 size={14} strokeWidth={1.7} />
                     <Text strong>{node.node_name}</Text>
                     <Text type="secondary">({node.ip}:{node.port})</Text>
                     <Tag color="blue">v{node.version}</Tag>
@@ -596,7 +596,7 @@ export default function DiscoveryPage() {
               { label: t.discovery.statusFailed, value: 'failed' },
             ]}
           />
-          <Button icon={<ReloadOutlined />} onClick={loadTasks} loading={tasksLoading}>
+          <Button icon={<RefreshCw size={14} strokeWidth={1.7} />} onClick={loadTasks} loading={tasksLoading}>
             {t.common.refresh}
           </Button>
         </Space>
@@ -643,7 +643,7 @@ export default function DiscoveryPage() {
   return (
     <div>
       <Title level={4} style={{ marginBottom: 24 }}>
-        <RadarChartOutlined /> {t.discovery.title}
+        <Radar size={14} strokeWidth={1.7} /> {t.discovery.title}
       </Title>
 
       <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} />
@@ -690,10 +690,10 @@ export default function DiscoveryPage() {
                   <Text type="secondary">{t.discovery.scanned}:</Text> {activeTask.scanned_ips}/{activeTask.total_ips}
                 </Text>
                 <Text type="success">
-                  <CheckCircleOutlined /> {t.discovery.found}: {activeTask.found_nodes}
+                  <CheckCircle2 size={14} strokeWidth={1.7} /> {t.discovery.found}: {activeTask.found_nodes}
                 </Text>
                 <Text type="danger">
-                  <CloseCircleOutlined /> {t.discovery.failed}: {activeTask.failed_ips}
+                  <XCircle size={14} strokeWidth={1.7} /> {t.discovery.failed}: {activeTask.failed_ips}
                 </Text>
               </Space>
             </Card>

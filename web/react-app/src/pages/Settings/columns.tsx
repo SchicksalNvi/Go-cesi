@@ -1,5 +1,5 @@
 import { Button, Space, Tag, Popconfirm, Typography } from 'antd';
-import { DownloadOutlined, DeleteOutlined } from '@ant-design/icons';
+import { Download, Trash2 } from 'lucide-react';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import type { TranslationKeys } from '@/i18n';
@@ -118,7 +118,7 @@ export function buildExportColumns(
         <Space>
           <Button
             size="small"
-            icon={<DownloadOutlined />}
+            icon={<Download size={14} strokeWidth={1.7} />}
             onClick={() => handlers.onDownload(record)}
             disabled={record.status !== 'completed'}
           >
@@ -133,7 +133,7 @@ export function buildExportColumns(
             <Button
               size="small"
               danger
-              icon={<DeleteOutlined />}
+              icon={<Trash2 size={14} strokeWidth={1.7} />}
               disabled={record.status === 'running'}
             >
               {t.common.delete}
@@ -246,7 +246,7 @@ export function buildImportColumns(
           <Button
             size="small"
             danger
-            icon={<DeleteOutlined />}
+            icon={<Trash2 size={14} strokeWidth={1.7} />}
             disabled={record.status === 'running'}
           >
             {t.common.delete}
@@ -340,7 +340,7 @@ export function buildBackupColumns(
         <Space>
           <Button
             size="small"
-            icon={<DownloadOutlined />}
+            icon={<Download size={14} strokeWidth={1.7} />}
             onClick={() => handlers.onDownload(record)}
             disabled={record.status !== 'completed'}
           >
@@ -355,7 +355,7 @@ export function buildBackupColumns(
             <Button
               size="small"
               danger
-              icon={<DeleteOutlined />}
+              icon={<Trash2 size={14} strokeWidth={1.7} />}
               disabled={record.status === 'running'}
             >
               {t.common.delete}

@@ -1,9 +1,5 @@
 import { Card, Space, Tag } from 'antd';
-import {
-  AppstoreOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-} from '@ant-design/icons';
+import { LayoutGrid, CheckCircle2, XCircle } from 'lucide-react';
 import { Environment } from '@/types';
 import { useStore } from '@/store';
 
@@ -41,7 +37,7 @@ export default function EnvironmentCard({ environment, onClick }: EnvironmentCar
               justifyContent: 'center',
             }}
           >
-            <AppstoreOutlined style={{ fontSize: 24, color: '#52c41a' }} />
+            <LayoutGrid size={24} strokeWidth={1.7} style={{ fontSize: 24, color: '#52c41a' }} />
           </div>
           <div>
             <h3 style={{ margin: 0, fontSize: 18 }}>{environment.name}</h3>
@@ -65,7 +61,7 @@ export default function EnvironmentCard({ environment, onClick }: EnvironmentCar
               {onlineNodes}
             </div>
             <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
-              <CheckCircleOutlined style={{ marginRight: 4 }} />
+              <CheckCircle2 size={14} strokeWidth={1.7} style={{ marginRight: 4 }} />
               {t.nodes.online}
             </div>
           </div>
@@ -80,7 +76,7 @@ export default function EnvironmentCard({ environment, onClick }: EnvironmentCar
               {offlineNodes}
             </div>
             <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
-              <CloseCircleOutlined style={{ marginRight: 4 }} />
+              <XCircle size={14} strokeWidth={1.7} style={{ marginRight: 4 }} />
               {t.nodes.offline}
             </div>
           </div>

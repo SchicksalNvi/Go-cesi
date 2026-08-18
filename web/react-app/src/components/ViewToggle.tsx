@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button, Space } from 'antd';
-import { AppstoreOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { LayoutGrid, List } from 'lucide-react';
 
 export type ViewMode = 'card' | 'list';
 
@@ -21,7 +21,7 @@ export const ViewToggle: React.FC<ViewToggleProps> = ({
     <Space.Compact size={size} role="radiogroup" aria-label="View mode selection">
       <Button
         type={value === 'card' ? 'primary' : 'default'}
-        icon={<AppstoreOutlined />}
+        icon={<LayoutGrid size={14} strokeWidth={1.7} />}
         onClick={() => onChange('card')}
         disabled={disabled}
         role="radio"
@@ -32,7 +32,7 @@ export const ViewToggle: React.FC<ViewToggleProps> = ({
       </Button>
       <Button
         type={value === 'list' ? 'primary' : 'default'}
-        icon={<UnorderedListOutlined />}
+        icon={<List size={14} strokeWidth={1.7} />}
         onClick={() => onChange('list')}
         disabled={disabled}
         role="radio"

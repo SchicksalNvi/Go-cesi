@@ -2,11 +2,11 @@ import React, { useMemo, useState, useCallback } from 'react';
 import * as ReactWindow from 'react-window';
 import { Table, Tag, Button, Space, Tooltip, Typography, Checkbox } from 'antd';
 import {
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-  EyeOutlined,
-  ReloadOutlined,
-} from '@ant-design/icons';
+  CheckCircle2,
+  XCircle,
+  Eye,
+  RefreshCw,
+} from 'lucide-react';
 import { Node } from '@/types';
 
 const { Text } = Typography;
@@ -213,7 +213,7 @@ export const VirtualizedNodesTable: React.FC<VirtualizedNodesTableProps> = ({
         {/* Status Tag */}
         <div style={{ width: 100, paddingLeft: 8 }}>
           <Tag
-            icon={node.is_connected ? <CheckCircleOutlined /> : <CloseCircleOutlined />}
+            icon={node.is_connected ? <CheckCircle2 size={14} strokeWidth={1.7} /> : <XCircle size={14} strokeWidth={1.7} />}
             color={node.is_connected ? 'success' : 'error'}
           >
             {node.is_connected ? 'Online' : 'Offline'}
@@ -227,7 +227,7 @@ export const VirtualizedNodesTable: React.FC<VirtualizedNodesTableProps> = ({
               <Button
                 type="text"
                 size="small"
-                icon={<EyeOutlined />}
+                icon={<Eye size={14} strokeWidth={1.7} />}
                 onClick={(e) => {
                   e.stopPropagation();
                   onNodeClick(node.name);
@@ -239,7 +239,7 @@ export const VirtualizedNodesTable: React.FC<VirtualizedNodesTableProps> = ({
                 <Button
                   type="text"
                   size="small"
-                  icon={<ReloadOutlined />}
+                  icon={<RefreshCw size={14} strokeWidth={1.7} />}
                   onClick={(e) => {
                     e.stopPropagation();
                     onRefreshNode(node.name);
