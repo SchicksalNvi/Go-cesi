@@ -320,10 +320,13 @@ const LogViewer: React.FC<LogViewerProps> = ({
         style={{
           height: 500,
           overflow: 'auto',
-          border: '1px solid #d9d9d9',
-          borderRadius: 4,
-          padding: 8,
-          backgroundColor: '#fafafa',
+          border: '1px solid var(--hairline-strong)',
+          borderRadius: 12,
+          padding: 12,
+          backgroundColor: '#080a12',
+          color: '#d6def5',
+          fontFamily: 'var(--font-mono)',
+          fontSize: 12,
         }}
       >
         {loading ? (
@@ -331,11 +334,11 @@ const LogViewer: React.FC<LogViewerProps> = ({
             <Spin size="large" />
           </div>
         ) : filteredEntries.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 50, color: '#999' }}>
+          <div style={{ textAlign: 'center', padding: 50, color: 'var(--text-low)' }}>
             {t.logViewer.noLogEntries}
           </div>
         ) : (
-          <div style={{ fontFamily: 'monospace', fontSize: 12 }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>
             {filteredEntries.map((entry, index) => (
               <div 
                 key={index} 
@@ -344,14 +347,19 @@ const LogViewer: React.FC<LogViewerProps> = ({
                   gap: 8, 
                   padding: '4px 0',
                   alignItems: 'flex-start',
+                  borderBottom: index < filteredEntries.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
+                  borderRadius: 6,
                 }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(129,140,248,0.07)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
               >
                 <span 
                   style={{ 
-                    color: 'rgba(0,0,0,0.45)',
+                    color: '#5d6886',
                     width: 152,
                     minWidth: 152,
                     flexShrink: 0,
+                    fontSize: 11,
                   }}
                 >
                   {formatTimestamp(entry.timestamp)}
@@ -362,7 +370,7 @@ const LogViewer: React.FC<LogViewerProps> = ({
                 >
                   {entry.level.toUpperCase()}
                 </Tag>
-                <span style={{ flex: 1, wordBreak: 'break-word' }}>
+                <span style={{ flex: 1, wordBreak: 'break-word', color: '#d6def5' }}>
                   {entry.message}
                 </span>
               </div>

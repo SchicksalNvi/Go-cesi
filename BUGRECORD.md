@@ -15,7 +15,7 @@
 |---------|------|------|------|---------|
 | High    | 14   | 0    | 14   | 0       |
 | Medium  | 36   | 0    | 35   | 1       |
-| Low     | 15   | 0    | 15   | 0       |
+| Low     | 16   | 0    | 16   | 0       |
 
 ---
 
@@ -429,6 +429,13 @@
   - 清理依赖:`@ant-design/icons`、`@ant-design/pro-components` 已无人引用,自 package.json 移除;`vite.config.ts` 删除对应 manualChunks;补装 `tslib` 以维持 echarts-for-react 解析。
 - **验证**: `npx tsc --noEmit`(0 错误)、`npm run build`(成功、无残余 antd-icons/antd-pro 死 chunk)、`go build ./...`(通过)、全量审计(0 表情符号、0 处 `@ant-design/icons`、0 处 `Outlined` 引用)、运行中服务 `curl` 验证登录/节点/Dashboard 数据端点 200、`curl -I` 确认新 CSP 头(含字体放行)已生效。经三轮检查(类型/构建、符号审计、全量+运行时复核)均无问题。
 
+### L-17 ✅ 日志查看器文字与浅色背景融为一体不可见
+- **位置**: `web/react-app/src/components/LogViewer.tsx:318-327`(日志容器样式)
+- **问题**: 运行时实测发现。日志容器硬编码为浅色 `backgroundColor: '#fafafa'`、边框 `#d9d9d9`,但未显式设置容器文本颜色。前端重构为暗色 Obsidian 主题后,antd `theme.darkAlgorithm` 将默认文本色改为近白色(`colorText` ≈ #f4f6ff),落在浅色 #fafafa 背景上形成"白字白底",日志内容(时间戳、消息)几乎不可见。
+- **影响**: 节点进程日志查看(如 `/api/nodes/node-11/.../logs/stream`)时日志与背景融为一体,用户无法阅读,属高暴露度 UI 缺陷。
+- **修复记录**: 2026-08-18 · 将日志容器改为暗色终端风格:背景 `#080a12`、边框 `var(--hairline-strong)`、容器显式 `color: #d6def5`(等宽字体 `var(--font-mono)`);消息文本显式 `#d6def5`,时间戳 `#5d6886`(弱化但仍可读);行间加细分隔线 + hover 高亮(提升长日志可读性)。移除多余的浅色残留。空态文案用 `var(--text-low)`。
+- **验证**: `npx tsc --noEmit`(0 错误)、`npm run build`(成功);确认修复已进 `LogViewer-*.js` 构建 chunk(含 `080a12`/`d6def5`)、该 chunk 与主入口均被服务端 200 服务、日志流接口 `curl` 鉴权后 200。浏览器硬刷新后日志在暗色背景下清晰可读。
+
 ### L-13 ✅ WebSocket 节点 ACL 快照在节点权限撤销后不会刷新
 - **位置**: `internal/websocket/hub.go:1042-1059`(HandleWebSocket 中构建 `allowedNodeIDs` 快照)
 - **问题**: 第八轮复审发现。`HandleWebSocket` 在握手时查询 `NodeAccess` 构建 `allowedNodeIDs` 快照,该快照仅创建一次,永久缓存于 `Client` 结构。管理员通过 `UpdateUserNodeAccess` 撤销某节点的读取权限后,已建立 WebSocket 连接的 `allowedNodeIDs` 不被刷新,该客户端仍能持续通过实时推送(z.nodes_update、log_stream 等)收到被撤销节点的数据。REST API 不受影响(每请求重载用户)。
@@ -558,7 +565,7 @@
 
 ---
 
-_最后更新:2026-08-18 · 前端按 `.agents/front.md` 完成视觉重构(L-16)。共记录 65 项:0 TODO、64 DONE、1 WONTFIX(High 14、Medium 36、Low 15)。_
+_最后更新:2026-08-18 · 前端按 `.agents/front.md` 完成视觉重构(L-16),并修复日志查看器白底白字(L-17)。共记录 66 项:0 TODO、65 DONE、1 WONTFIX(High 14、Medium 36、Low 16)。_
 
 _本轮验证状态:`go build ./...` 通过、`go vet ./...` 通过;`npx tsc --noEmit` 通过(web/react-app)、`npm run build` 通过;全量审计无表情符号、无 `@ant-design/icons` 残留;运行中服务 `curl` 验证登录/数据端点 200,新 CSP 头(含字体放行)已生效。tools/ 已添加 `//go:build ignore` 标签,`go build/vet/test ./...` 不再因此失败。_
 
