@@ -65,7 +65,7 @@ func (s *UserService) Authenticate(username, password string) (*models.User, err
 	// 更新最后登录时间
 	now := time.Now()
 	user.LastLogin = &now
-	if err := s.repo.User.Update(user); err != nil {
+	if err := s.repo.User.UpdateFieldsWithVersion(user.ID, map[string]interface{}{"last_login": now}, user.TokenVersion); err != nil {
 		logger.Warn("Failed to update last login time",
 			zap.String("user_id", user.ID),
 			zap.String("username", user.Username),
@@ -87,13 +87,13 @@ func (s *UserService) GetUserByUsername(username string) (*models.User, error) {
 
 // UpdateUser 更新用户信息
 func (s *UserService) UpdateUser(user *models.User) error {
+	existingUser, err := s.repo.User.GetByID(user.ID)
+	if err != nil {
+		return err
+	}
+
 	// 如果更新用户名，检查是否已存在
 	if user.Username != "" {
-		existingUser, err := s.repo.User.GetByID(user.ID)
-		if err != nil {
-			return err
-		}
-
 		if existingUser.Username != user.Username {
 			exists, err := s.repo.User.ExistsByUsername(user.Username)
 			if err != nil {
@@ -107,11 +107,6 @@ func (s *UserService) UpdateUser(user *models.User) error {
 
 	// 如果更新邮箱，检查是否已存在
 	if user.Email != "" {
-		existingUser, err := s.repo.User.GetByID(user.ID)
-		if err != nil {
-			return err
-		}
-
 		if existingUser.Email != user.Email {
 			exists, err := s.repo.User.ExistsByEmail(user.Email)
 			if err != nil {
@@ -123,7 +118,42 @@ func (s *UserService) UpdateUser(user *models.User) error {
 		}
 	}
 
-	return s.repo.User.Update(user)
+	passwordChanged := existingUser.Password != user.Password
+	activeChanged := existingUser.IsActive != user.IsActive
+	// Always check for concurrent session state changes
+	if existingUser.TokenVersion != user.TokenVersion {
+		return errors.NewConflictError("user", "user session state changed concurrently; reload and retry")
+	}
+
+	updates := make(map[string]interface{})
+	if existingUser.Username != user.Username {
+		updates["username"] = user.Username
+	}
+	if passwordChanged {
+		updates["password"] = user.Password
+	}
+	if existingUser.Email != user.Email {
+		updates["email"] = user.Email
+	}
+	if existingUser.FullName != user.FullName {
+		updates["full_name"] = user.FullName
+	}
+	if activeChanged {
+		updates["is_active"] = user.IsActive
+	}
+	if existingUser.IsAdmin != user.IsAdmin {
+		updates["is_admin"] = user.IsAdmin
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+
+	revokeSessions := passwordChanged || (existingUser.IsActive && !user.IsActive) || (existingUser.IsAdmin != user.IsAdmin)
+	if revokeSessions {
+		return s.repo.User.UpdateFieldsAndRevokeSessions(user.ID, updates)
+	}
+
+	return s.repo.User.UpdateFields(user.ID, updates)
 }
 
 // DeleteUser 删除用户
@@ -168,8 +198,15 @@ func (s *UserService) ChangePassword(userID, oldPassword, newPassword string) er
 		return errors.NewInternalError("failed to hash password", err)
 	}
 
-	user.Password = string(hashedPassword)
-	return s.repo.User.Update(user)
+	return s.SetPasswordAndRevokeSessions(user.ID, string(hashedPassword))
+}
+
+// SetPasswordAndRevokeSessions atomically stores a password hash and revokes
+// every token issued before the change.
+func (s *UserService) SetPasswordAndRevokeSessions(userID, passwordHash string) error {
+	return s.repo.User.UpdateFieldsAndRevokeSessions(userID, map[string]interface{}{
+		"password": passwordHash,
+	})
 }
 
 // ActivateUser 激活用户
@@ -179,8 +216,7 @@ func (s *UserService) ActivateUser(userID string) error {
 		return err
 	}
 
-	user.IsActive = true
-	return s.repo.User.Update(user)
+	return s.repo.User.UpdateFields(user.ID, map[string]interface{}{"is_active": true})
 }
 
 // DeactivateUser 停用用户
@@ -190,8 +226,12 @@ func (s *UserService) DeactivateUser(userID string) error {
 		return err
 	}
 
-	user.IsActive = false
-	return s.repo.User.Update(user)
+	if user.IsActive {
+		return s.repo.User.UpdateFieldsAndRevokeSessions(user.ID, map[string]interface{}{
+			"is_active": false,
+		})
+	}
+	return nil
 }
 
 // PromoteToAdmin 提升为管理员
@@ -201,8 +241,7 @@ func (s *UserService) PromoteToAdmin(userID string) error {
 		return err
 	}
 
-	user.IsAdmin = true
-	return s.repo.User.Update(user)
+	return s.repo.User.UpdateFields(user.ID, map[string]interface{}{"is_admin": true})
 }
 
 // DemoteFromAdmin 取消管理员权限
@@ -212,6 +251,5 @@ func (s *UserService) DemoteFromAdmin(userID string) error {
 		return err
 	}
 
-	user.IsAdmin = false
-	return s.repo.User.Update(user)
+	return s.repo.User.UpdateFields(user.ID, map[string]interface{}{"is_admin": false})
 }

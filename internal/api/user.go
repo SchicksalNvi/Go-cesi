@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 	"superview/internal/models"
+	"superview/internal/repository"
 	"superview/internal/services"
 	"superview/internal/validation"
 )
@@ -50,6 +51,11 @@ func NewUserAPI(db *gorm.DB, activityLogService ...*services.ActivityLogService)
 		api.activityLogService = activityLogService[0]
 	}
 	return api
+}
+
+func (u *UserAPI) setPasswordAndRevokeSessions(userID, passwordHash string) error {
+	userService := services.NewUserService(repository.NewRepository(u.db))
+	return userService.SetPasswordAndRevokeSessions(userID, passwordHash)
 }
 
 func (u *UserAPI) requireUserPermission(c *gin.Context, permission string) (*models.User, bool) {
@@ -236,9 +242,8 @@ func (u *UserAPI) ChangePassword(c *gin.Context) {
 		})
 		return
 	}
-
 	// 保存更新
-	if err := u.db.Save(&targetUser).Error; err != nil {
+	if err := u.setPasswordAndRevokeSessions(targetUser.ID, targetUser.Password); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"status":  "error",
 			"message": "更新密码失败",
@@ -474,8 +479,7 @@ func (u *UserAPI) ChangeOwnPassword(c *gin.Context) {
 		})
 		return
 	}
-
-	if err := u.db.Save(&user).Error; err != nil {
+	if err := u.setPasswordAndRevokeSessions(user.ID, user.Password); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"status":  "error",
 			"message": "更新密码失败",

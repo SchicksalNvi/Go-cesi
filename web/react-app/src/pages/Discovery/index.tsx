@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Card,
   Form,
@@ -117,10 +117,32 @@ export default function DiscoveryPage() {
   const [recentlyDiscovered, setRecentlyDiscovered] = useState<DiscoveredNode[]>([]);
   const [activeTab, setActiveTab] = useState('new');
 
+  // AbortControllers to cancel in-flight requests on unmount
+  const abortControllersRef = useRef<AbortController[]>([]);
+  // Guards against overlapping requests
+  const isFetchingTasksRef = useRef(false);
+  const isFetchingDetailRef = useRef(false);
+
+  // Create an AbortController and register it so all in-flight requests can
+  // be cancelled on unmount.
+  const createRequestSignal = (): AbortSignal => {
+    const controller = new AbortController();
+    abortControllersRef.current.push(controller);
+    return controller.signal;
+  };
+
   // Load tasks on mount
   useEffect(() => {
     loadTasks();
   }, [pagination.page, pagination.limit, statusFilter]);
+
+  // Cancel in-flight requests on unmount
+  useEffect(() => {
+    return () => {
+      abortControllersRef.current.forEach((controller) => controller.abort());
+      abortControllersRef.current = [];
+    };
+  }, []);
 
   // WebSocket for real-time updates
   useWebSocket({
@@ -153,33 +175,45 @@ export default function DiscoveryPage() {
   });
 
   const loadTasks = async () => {
+    // Guard against overlapping requests
+    if (isFetchingTasksRef.current) {
+      return;
+    }
+    isFetchingTasksRef.current = true;
     setTasksLoading(true);
     try {
       const response = await discoveryApi.getTasks({
         page: pagination.page,
         limit: pagination.limit,
         status: statusFilter || undefined,
-      });
+      }, { signal: createRequestSignal() });
       setTasks(response.tasks || []);
       setPagination(prev => ({ ...prev, total: response.total }));
     } catch (error) {
       console.error('Failed to load tasks:', error);
       message.error(t.discovery.loadTasksFailed);
     } finally {
+      isFetchingTasksRef.current = false;
       setTasksLoading(false);
     }
   };
 
   const loadTaskDetail = async (taskId: number) => {
+    // Guard against overlapping requests
+    if (isFetchingDetailRef.current) {
+      return;
+    }
+    isFetchingDetailRef.current = true;
     setDetailLoading(true);
     try {
-      const response = await discoveryApi.getTask(taskId);
+      const response = await discoveryApi.getTask(taskId, { signal: createRequestSignal() });
       setActiveTask(response.task);
       setActiveResults(response.results || []);
     } catch (error) {
       console.error('Failed to load task detail:', error);
       message.error(t.discovery.loadTaskDetailsFailed);
     } finally {
+      isFetchingDetailRef.current = false;
       setDetailLoading(false);
     }
   };

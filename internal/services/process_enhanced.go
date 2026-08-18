@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -22,6 +23,14 @@ type ProcessEnhancedService struct {
 type TaskScheduler struct {
 	service *ProcessEnhancedService
 	running bool
+
+	// mu 保护 running 字段和 cronEntries 映射,防止并发
+	// 重复启动/停止导致 cron 任务重复注册。
+	mu sync.Mutex
+
+	// cronEntries 记录 taskID -> cron.EntryID 的映射,用于在
+	// 删除/更新任务时精确移除已注册的 cron 条目,避免重复注册。
+	cronEntries map[uint]cron.EntryID
 }
 
 // NewProcessEnhancedService 创建进程增强服务实例
@@ -31,14 +40,18 @@ func NewProcessEnhancedService(db *gorm.DB) *ProcessEnhancedService {
 		cronJob: cron.New(),
 	}
 	service.scheduler = &TaskScheduler{
-		service: service,
-		running: false,
+		service:     service,
+		running:     false,
+		cronEntries: make(map[uint]cron.EntryID),
 	}
 	return service
 }
 
 // StartScheduler 启动任务调度器
 func (s *ProcessEnhancedService) StartScheduler() error {
+	s.scheduler.mu.Lock()
+	defer s.scheduler.mu.Unlock()
+
 	if s.scheduler.running {
 		return fmt.Errorf("scheduler is already running")
 	}
@@ -57,14 +70,46 @@ func (s *ProcessEnhancedService) StartScheduler() error {
 
 // StopScheduler 停止任务调度器
 func (s *ProcessEnhancedService) StopScheduler() {
+	s.scheduler.mu.Lock()
+	defer s.scheduler.mu.Unlock()
+
 	if s.scheduler.running {
 		s.cronJob.Stop()
 		s.scheduler.running = false
+
+		// 清空 cron 条目映射,避免重复注册
+		s.scheduler.cronEntries = make(map[uint]cron.EntryID)
 		logger.Info("Task scheduler stopped")
 	}
 }
 
+// removeCronEntry 移除指定任务的 cron 条目(需在持有 scheduler.mu 时调用)
+func (s *ProcessEnhancedService) removeCronEntry(taskID uint) {
+	entryID, exists := s.scheduler.cronEntries[taskID]
+	if !exists {
+		return
+	}
+	s.cronJob.Remove(entryID)
+	delete(s.scheduler.cronEntries, taskID)
+}
+
+// addCronEntry 注册指定任务的 cron 条目(需在持有 scheduler.mu 时调用)
+func (s *ProcessEnhancedService) addCronEntry(task *models.ScheduledTask) error {
+	// 先移除旧条目,避免重复注册
+	s.removeCronEntry(task.ID)
+
+	entryID, err := s.cronJob.AddFunc(task.CronExpr, func() {
+		s.executeScheduledTask(task)
+	})
+	if err != nil {
+		return err
+	}
+	s.scheduler.cronEntries[task.ID] = entryID
+	return nil
+}
+
 // loadScheduledTasks 加载定时任务
+// 调用方必须持有 s.scheduler.mu(StartScheduler 内已加锁)
 func (s *ProcessEnhancedService) loadScheduledTasks() error {
 	var tasks []models.ScheduledTask
 	err := s.db.Where("enabled = ?", true).Find(&tasks).Error
@@ -72,10 +117,9 @@ func (s *ProcessEnhancedService) loadScheduledTasks() error {
 		return err
 	}
 
-	for _, task := range tasks {
-		_, err := s.cronJob.AddFunc(task.CronExpr, func() {
-			s.executeScheduledTask(&task)
-		})
+	for i := range tasks {
+		task := &tasks[i]
+		err := s.addCronEntry(task)
 		if err != nil {
 			logger.Error("Failed to add cron job for task", zap.Uint("task_id", task.ID), zap.Error(err))
 		}
@@ -293,10 +337,10 @@ func (s *ProcessEnhancedService) CreateScheduledTask(task *models.ScheduledTask)
 	}
 
 	// 如果调度器正在运行且任务启用，添加到cron
+	s.scheduler.mu.Lock()
+	defer s.scheduler.mu.Unlock()
 	if s.scheduler.running && task.Enabled {
-		_, err = s.cronJob.AddFunc(task.CronExpr, func() {
-			s.executeScheduledTask(task)
-		})
+		err = s.addCronEntry(task)
 	}
 
 	return err
@@ -369,7 +413,26 @@ func (s *ProcessEnhancedService) UpdateScheduledTask(id uint, updates map[string
 		updates["next_run"] = nextRun
 	}
 
-	return s.db.Model(&models.ScheduledTask{}).Where("id = ?", id).Updates(updates).Error
+	if err := s.db.Model(&models.ScheduledTask{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+		return err
+	}
+
+	// 若调度器正在运行,重新注册该任务的 cron 条目(先移除旧条目再按新配置注册),
+	// 避免 cron 表达式/启用状态变更后仍执行旧调度。
+	s.scheduler.mu.Lock()
+	defer s.scheduler.mu.Unlock()
+	if s.scheduler.running {
+		var task models.ScheduledTask
+		if err := s.db.First(&task, id).Error; err == nil {
+			if task.Enabled {
+				err = s.addCronEntry(&task)
+			} else {
+				s.removeCronEntry(task.ID)
+			}
+		}
+	}
+
+	return nil
 }
 
 // DeleteScheduledTask 删除定时任务
@@ -379,6 +442,12 @@ func (s *ProcessEnhancedService) DeleteScheduledTask(id uint) error {
 	if err != nil {
 		return err
 	}
+
+	// 从 cron 中移除该任务的注册条目,防止删除后仍被调度执行
+	s.scheduler.mu.Lock()
+	s.removeCronEntry(id)
+	s.scheduler.mu.Unlock()
+
 	// 删除任务
 	return s.db.Delete(&models.ScheduledTask{}, id).Error
 }

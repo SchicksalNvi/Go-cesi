@@ -33,6 +33,33 @@ func NewProcessEnhancedHandler(db *gorm.DB, activityLogService ...*services.Acti
 	return h
 }
 
+// authorizeNodeAccess 检查当前用户对指定节点的访问权限(节点 ACL 与私有资源隔离)
+// action: "read" 读取, "write" 写入, "execute" 执行(start/stop/restart)
+// 节点在数据库中不存在或用户无权访问时返回 false,并已写入错误响应。
+func (h *ProcessEnhancedHandler) authorizeNodeAccess(c *gin.Context, nodeID uint, action string) bool {
+	user, ok := getCurrentUser(c)
+	if !ok {
+		return false
+	}
+
+	var node models.Node
+	if err := h.db.First(&node, nodeID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			handleNotFound(c, "node", strconv.FormatUint(uint64(nodeID), 10))
+		} else {
+			handleAppError(c, err)
+		}
+		return false
+	}
+
+	if !isNodeActionAllowed(user, node.ID, action) {
+		handleForbidden(c, "Access to this node is forbidden")
+		return false
+	}
+
+	return true
+}
+
 // StartScheduler 启动任务调度器
 func (h *ProcessEnhancedHandler) StartScheduler(c *gin.Context) {
 	err := h.service.StartScheduler()
@@ -221,6 +248,11 @@ func (h *ProcessEnhancedHandler) AddProcessToGroup(c *gin.Context) {
 		return
 	}
 
+	// 节点 ACL 检查
+	if !h.authorizeNodeAccess(c, req.NodeID, "write") {
+		return
+	}
+
 	err = h.service.AddProcessToGroup(uint(id), req.ProcessName, req.NodeID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -245,6 +277,11 @@ func (h *ProcessEnhancedHandler) RemoveProcessFromGroup(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 节点 ACL 检查
+	if !h.authorizeNodeAccess(c, req.NodeID, "write") {
 		return
 	}
 
@@ -316,6 +353,11 @@ func (h *ProcessEnhancedHandler) CreateProcessDependency(c *gin.Context) {
 		Timeout:          30,
 	}
 
+	// 节点 ACL 检查(依赖涉及两个节点,均需访问权限)
+	if !h.authorizeNodeAccess(c, req.NodeID, "write") || !h.authorizeNodeAccess(c, req.DependentNodeID, "write") {
+		return
+	}
+
 	err := h.service.CreateProcessDependency(dependency)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -341,6 +383,11 @@ func (h *ProcessEnhancedHandler) GetProcessDependencies(c *gin.Context) {
 		return
 	}
 
+	// 节点 ACL 检查
+	if !h.authorizeNodeAccess(c, uint(nodeID), "read") {
+		return
+	}
+
 	dependencies, err := h.service.GetProcessDependencies(processName, uint(nodeID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -363,6 +410,11 @@ func (h *ProcessEnhancedHandler) GetDependentProcesses(c *gin.Context) {
 	nodeID, err := strconv.ParseUint(nodeIDStr, 10, 32)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid node_id"})
+		return
+	}
+
+	// 节点 ACL 检查
+	if !h.authorizeNodeAccess(c, uint(nodeID), "read") {
 		return
 	}
 
@@ -401,6 +453,11 @@ func (h *ProcessEnhancedHandler) GetStartupOrder(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 节点 ACL 检查
+	if !h.authorizeNodeAccess(c, req.NodeID, "read") {
 		return
 	}
 
@@ -806,6 +863,11 @@ func (h *ProcessEnhancedHandler) CreateProcessBackup(c *gin.Context) {
 		CreatedBy:   userID,
 	}
 
+	// 节点 ACL 检查
+	if !h.authorizeNodeAccess(c, req.NodeID, "write") {
+		return
+	}
+
 	err := h.service.CreateProcessBackup(backup)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -828,6 +890,11 @@ func (h *ProcessEnhancedHandler) GetProcessBackups(c *gin.Context) {
 	nodeID, err := strconv.ParseUint(nodeIDStr, 10, 32)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid node_id"})
+		return
+	}
+
+	// 节点 ACL 检查
+	if !h.authorizeNodeAccess(c, uint(nodeID), "read") {
 		return
 	}
 
@@ -892,6 +959,11 @@ func (h *ProcessEnhancedHandler) RecordProcessMetrics(c *gin.Context) {
 		Timestamp:     time.Now(),
 	}
 
+	// 节点 ACL 检查
+	if !h.authorizeNodeAccess(c, req.NodeID, "write") {
+		return
+	}
+
 	err := h.service.RecordProcessMetrics(metrics)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -916,6 +988,11 @@ func (h *ProcessEnhancedHandler) GetProcessMetrics(c *gin.Context) {
 	nodeID, err := strconv.ParseUint(nodeIDStr, 10, 32)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid node_id"})
+		return
+	}
+
+	// 节点 ACL 检查
+	if !h.authorizeNodeAccess(c, uint(nodeID), "read") {
 		return
 	}
 
@@ -947,6 +1024,11 @@ func (h *ProcessEnhancedHandler) GetProcessMetricsStatistics(c *gin.Context) {
 	nodeID, err := strconv.ParseUint(nodeIDStr, 10, 32)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid node_id"})
+		return
+	}
+
+	// 节点 ACL 检查
+	if !h.authorizeNodeAccess(c, uint(nodeID), "read") {
 		return
 	}
 

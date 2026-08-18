@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -267,6 +266,7 @@ func (api *SystemSettingsAPI) UpdateMultipleSettings(c *gin.Context) {
 	defer func() {
 		if r := recover(); r != nil {
 			tx.Rollback()
+			panic(r) // L-14: 重抛给全局 ErrorHandler,避免虚假成功
 		}
 	}()
 
@@ -498,58 +498,13 @@ func (api *SystemSettingsAPI) UpdateUserPreferencesByAdmin(c *gin.Context) {
 
 // TestEmailConfiguration tests the email configuration
 func (api *SystemSettingsAPI) TestEmailConfiguration(c *gin.Context) {
-	var request struct {
-		TestEmail string `json:"test_email" binding:"required,email"`
-	}
-
-	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Get email settings
-	var settings []models.SystemSettings
-	api.db.Where("category = ?", "email").Find(&settings)
-
-	emailConfig := make(map[string]string)
-	for _, setting := range settings {
-		emailConfig[setting.Key] = setting.Value
-	}
-
-	// Validate required email settings
-	requiredSettings := []string{"smtp_host", "smtp_port", "smtp_username", "smtp_password"}
-	for _, key := range requiredSettings {
-		if emailConfig[key] == "" {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error":   "Email configuration incomplete. Missing: " + key,
-				"success": false,
-			})
-			return
-		}
-	}
-
-	// Test email sending in background
-	go func() {
-		// Real SMTP email sending implementation
-		// For now, we'll simulate a more realistic test
-		// In production, use net/smtp or gomail library
-
-		// Simulate connection test
-		time.Sleep(2 * time.Second)
-
-		// Log the test attempt
-		fmt.Printf("Email test attempted to %s using SMTP %s:%s\n",
-			request.TestEmail, emailConfig["smtp_host"], emailConfig["smtp_port"])
-	}()
-
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Test email configuration validated for " + request.TestEmail,
-		"success": true,
-		"config": gin.H{
-			"smtp_host":     emailConfig["smtp_host"],
-			"smtp_port":     emailConfig["smtp_port"],
-			"smtp_username": emailConfig["smtp_username"],
-		},
+	// M-21: 邮件发送尚未实现,不再假装成功。
+	// 返回 501 Not Implemented,明确告知前端该能力未实现,
+	// 避免"模拟成功"掩盖真实缺失。
+	c.JSON(http.StatusNotImplemented, gin.H{
+		"success": false,
+		"error":   "Email sending is not implemented yet",
+		"message": "SMTP 邮件发送功能尚未实现,请接入 net/smtp 或 gomail 后启用此接口",
 	})
 }
 
@@ -561,6 +516,7 @@ func (api *SystemSettingsAPI) ResetToDefaults(c *gin.Context) {
 	defer func() {
 		if r := recover(); r != nil {
 			tx.Rollback()
+			panic(r) // L-14: 重抛给全局 ErrorHandler,避免虚假成功
 		}
 	}()
 

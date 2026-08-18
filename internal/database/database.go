@@ -421,44 +421,63 @@ func fixEmptyCategories(db *gorm.DB) error {
 		return nil
 	}
 
-	// 重建表
-	execMigration(db, "disable foreign_keys", "PRAGMA foreign_keys=OFF")
-	defer execMigration(db, "enable foreign_keys", "PRAGMA foreign_keys=ON")
-
-	execMigration(db, "drop system_settings", "DROP TABLE IF EXISTS system_settings")
-
-	createSQL := `CREATE TABLE system_settings (
-		id TEXT PRIMARY KEY,
-		category TEXT DEFAULT 'general',
-		key TEXT NOT NULL,
-		value TEXT,
-		value_type TEXT DEFAULT 'string',
-		description TEXT,
-		is_public NUMERIC DEFAULT false,
-		updated_by TEXT,
-		created_at DATETIME,
-		updated_at DATETIME,
-		deleted_at DATETIME
-	)`
-	if err := db.Exec(createSQL).Error; err != nil {
+	// 禁用外键检查(SQLite 不允许在事务内修改该 pragma,因此必须在事务外执行)
+	if err := db.Exec("PRAGMA foreign_keys=OFF").Error; err != nil {
 		return err
 	}
-
-	// 恢复数据
-	for _, b := range backups {
-		if b.Key == "" {
-			continue
+	defer func() {
+		if err := db.Exec("PRAGMA foreign_keys=ON").Error; err != nil {
+			zap.L().Warn("Failed to re-enable foreign_keys", zap.Error(err))
 		}
-		execMigration(db, "restore system_settings row", `INSERT INTO system_settings (id, category, key, value, value_type, description, is_public, updated_by, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			b.ID, b.Category, b.Key, b.Value, b.ValueType, b.Description, b.IsPublic, b.UpdatedBy, b.CreatedAt, b.UpdatedAt)
-	}
+	}()
 
-	execMigration(db, "create idx_category_key", "CREATE UNIQUE INDEX IF NOT EXISTS idx_category_key ON system_settings(category, key)")
-	execMigration(db, "create idx_system_settings_deleted_at", "CREATE INDEX IF NOT EXISTS idx_system_settings_deleted_at ON system_settings(deleted_at)")
+	// 在事务内重建表:任何步骤失败都会回滚整个操作,避免 DROP/CREATE/INSERT
+	// 中途失败导致 system_settings 表为空。
+	return db.Transaction(func(tx *gorm.DB) error {
+		// 重建表
+		if err := tx.Exec("DROP TABLE IF EXISTS system_settings").Error; err != nil {
+			return err
+		}
 
-	zap.L().Info("Successfully rebuilt system_settings table", zap.Int("records", len(backups)))
-	return nil
+		createSQL := `CREATE TABLE system_settings (
+			id TEXT PRIMARY KEY,
+			category TEXT DEFAULT 'general',
+			key TEXT NOT NULL,
+			value TEXT,
+			value_type TEXT DEFAULT 'string',
+			description TEXT,
+			is_public NUMERIC DEFAULT false,
+			updated_by TEXT,
+			created_at DATETIME,
+			updated_at DATETIME,
+			deleted_at DATETIME
+		)`
+		if err := tx.Exec(createSQL).Error; err != nil {
+			return err
+		}
+
+		// 恢复数据
+		for _, b := range backups {
+			if b.Key == "" {
+				continue
+			}
+			if err := tx.Exec(`INSERT INTO system_settings (id, category, key, value, value_type, description, is_public, updated_by, created_at, updated_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				b.ID, b.Category, b.Key, b.Value, b.ValueType, b.Description, b.IsPublic, b.UpdatedBy, b.CreatedAt, b.UpdatedAt).Error; err != nil {
+				return err
+			}
+		}
+
+		if err := tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_category_key ON system_settings(category, key)").Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("CREATE INDEX IF NOT EXISTS idx_system_settings_deleted_at ON system_settings(deleted_at)").Error; err != nil {
+			return err
+		}
+
+		zap.L().Info("Successfully rebuilt system_settings table", zap.Int("records", len(backups)))
+		return nil
+	})
 }
 
 // runCustomMigrations 执行自定义数据库迁移
@@ -520,13 +539,20 @@ func fixSystemSettingsForeignKey(db *gorm.DB) error {
 	
 	// 2. 开始事务
 	tx := db.Begin()
+	var deferredErr error
 	defer func() {
 		if r := recover(); r != nil {
 			tx.Rollback()
+			if deferredErr == nil {
+				deferredErr = fmt.Errorf("recovered from panic during FK migration: %v", r)
+			}
 		}
 	}()
 	
 	// 3. 重命名旧表
+	if deferredErr != nil {
+		return deferredErr
+	}
 	if err := tx.Exec("ALTER TABLE system_settings RENAME TO system_settings_old").Error; err != nil {
 		tx.Rollback()
 		return err

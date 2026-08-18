@@ -23,7 +23,8 @@ get_pid() {
 is_running() {
     local pid
     pid=$(get_pid)
-    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && \
+        [ "$(readlink -f "/proc/$pid/exe" 2>/dev/null)" = "$(readlink -f "$(pwd)/$APP_NAME")" ]
 }
 
 check_binary() {

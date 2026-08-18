@@ -1,13 +1,16 @@
 package auth
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"superview/internal/logger"
 	"superview/internal/models"
 	"superview/internal/services"
 )
@@ -17,17 +20,75 @@ type AuthService struct {
 	activityLogService *services.ActivityLogService
 }
 
-func (s *AuthService) loadUserForResponse(userID string) (*models.User, error) {
+var ErrSessionUnavailable = errors.New("authenticated user session is unavailable")
+
+func loadUserForSession(db *gorm.DB, userID string, tokenVersion uint64) (*models.User, error) {
+	if db == nil {
+		return nil, fmt.Errorf("load authenticated user: database is nil")
+	}
+
 	var user models.User
-	err := s.db.
+	err := db.
 		Preload("Roles.Permissions").
-		Preload("Roles").
+		Preload("NodeAccess").
 		Where("id = ?", userID).
 		First(&user).Error
 	if err != nil {
-		return nil, err
+		// Some focused tests intentionally omit association tables. Preserve the
+		// existing fallback while still requiring the user record itself.
+		err = db.Where("id = ?", userID).First(&user).Error
+	}
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrSessionUnavailable
+		}
+		return nil, fmt.Errorf("load authenticated user: %w", err)
+	}
+	if !user.IsActive || user.TokenVersion != tokenVersion {
+		return nil, ErrSessionUnavailable
 	}
 	return &user, nil
+}
+
+// AuthenticateToken validates the JWT and binds it to the current database
+// state. Deleting, disabling, logging out, or otherwise revoking a user makes
+// previously issued tokens fail this check.
+func AuthenticateToken(db *gorm.DB, tokenString string) (*models.User, *Claims, error) {
+	claims, err := ParseToken(tokenString)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	user, err := loadUserForSession(db, claims.UserID, claims.TokenVersion)
+	if err != nil {
+		return nil, nil, err
+	}
+	return user, claims, nil
+}
+
+// ValidateUserSession is the lightweight variant used to revalidate long-lived
+// connections such as WebSockets.
+func ValidateUserSession(db *gorm.DB, userID string, tokenVersion uint64) error {
+	if db == nil {
+		return fmt.Errorf("validate user session: database is nil")
+	}
+
+	var user models.User
+	err := db.Select("id", "is_active", "token_version").Where("id = ?", userID).First(&user).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrSessionUnavailable
+		}
+		return fmt.Errorf("validate user session: %w", err)
+	}
+	if !user.IsActive || user.TokenVersion != tokenVersion {
+		return ErrSessionUnavailable
+	}
+	return nil
+}
+
+func (s *AuthService) loadUserForResponse(userID string, tokenVersion uint64) (*models.User, error) {
+	return loadUserForSession(s.db, userID, tokenVersion)
 }
 
 func buildAuthUserPayload(user *models.User) gin.H {
@@ -116,7 +177,7 @@ func (s *AuthService) Login(c *gin.Context) {
 	// 验证密码
 	passwordValid := user.VerifyPassword(req.Password)
 
-	if !passwordValid {
+	if !passwordValid || !user.IsActive {
 		c.JSON(http.StatusForbidden, gin.H{
 			"status":  "error",
 			"message": "Invalid username/password",
@@ -124,8 +185,17 @@ func (s *AuthService) Login(c *gin.Context) {
 		return
 	}
 
-	// 生成JWT令牌
-	token, err := GenerateToken(user.ID)
+	userWithPermissions, err := s.loadUserForResponse(user.ID, user.TokenVersion)
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{
+			"status":  "error",
+			"message": "Invalid username/password",
+		})
+		return
+	}
+
+	// 生成与当前用户会话版本绑定的JWT令牌
+	token, err := GenerateToken(userWithPermissions.ID, userWithPermissions.TokenVersion)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"status":  "error",
@@ -136,21 +206,12 @@ func (s *AuthService) Login(c *gin.Context) {
 
 	// 更新最后登录时间
 	now := time.Now()
-	s.db.Model(&user).Update("last_login", now)
+	s.db.Model(&models.User{}).Where("id = ? AND token_version = ?", user.ID, user.TokenVersion).Update("last_login", now)
 
 	// 设置Cookie（自动检测 HTTPS 并设置 Secure 标志）
 	s.setCookie(c, "token", token, 3600*24)
 
 	s.logAuth(c, "login", user.ID, user.Username, fmt.Sprintf("User %s logged in", user.Username))
-
-	userWithPermissions, err := s.loadUserForResponse(user.ID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"status":  "error",
-			"message": "Failed to load user permissions",
-		})
-		return
-	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"status":  "success",
@@ -174,17 +235,44 @@ func (s *AuthService) Logout(c *gin.Context) {
 	if tokenString == "" {
 		tokenString, _ = c.Cookie("token")
 	}
-	if tokenString != "" {
+	var revokeErr error
+	if tokenString != "" && s.db != nil {
 		if claims, err := ParseToken(tokenString); err == nil {
 			var user models.User
-			if s.db.Where("id = ?", claims.UserID).First(&user).Error == nil {
-				s.logAuth(c, "logout", user.ID, user.Username, fmt.Sprintf("User %s logged out", user.Username))
+			lookupErr := s.db.Where("id = ? AND token_version = ?", claims.UserID, claims.TokenVersion).First(&user).Error
+			if lookupErr == nil {
+				// Incrementing the version revokes all tokens issued for the current
+				// session generation. The version predicate prevents an already
+				// revoked token from invalidating a newer login.
+				result := s.db.Model(&models.User{}).
+					Where("id = ? AND token_version = ?", claims.UserID, claims.TokenVersion).
+					UpdateColumn("token_version", gorm.Expr("token_version + 1"))
+				if result.Error != nil {
+					revokeErr = result.Error
+					logger.Error("Failed to revoke user sessions during logout",
+						zap.String("user_id", claims.UserID),
+						zap.Error(result.Error))
+				} else if result.RowsAffected > 0 {
+					s.logAuth(c, "logout", user.ID, user.Username, fmt.Sprintf("User %s logged out", user.Username))
+				}
+			} else if !errors.Is(lookupErr, gorm.ErrRecordNotFound) {
+				revokeErr = lookupErr
+				logger.Error("Failed to load user session during logout",
+					zap.String("user_id", claims.UserID),
+					zap.Error(lookupErr))
 			}
 		}
 	}
 
 	// 清除Cookie（自动检测 HTTPS 并设置 Secure 标志）
 	s.setCookie(c, "token", "", -1)
+	if revokeErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status":  "error",
+			"message": "Failed to revoke session",
+		})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"status":  "success",
@@ -222,22 +310,12 @@ func (s *AuthService) GetCurrentUser(c *gin.Context) {
 		return
 	}
 
-	// 验证令牌
-	claims, err := ParseToken(tokenString)
+	// 验证令牌并确认用户仍存在、启用且会话版本有效
+	user, _, err := AuthenticateToken(s.db, tokenString)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"status":  "error",
 			"message": "Invalid or expired token",
-		})
-		return
-	}
-
-	// 获取用户信息
-	user, err := s.loadUserForResponse(claims.UserID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"status":  "error",
-			"message": "Failed to get user info",
 		})
 		return
 	}
@@ -300,8 +378,8 @@ func (s *AuthService) AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// 验证令牌
-		claims, err := ParseToken(tokenString)
+		// 验证令牌，并将JWT与当前用户状态/会话版本绑定。
+		user, claims, err := AuthenticateToken(s.db, tokenString)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"status":  "error",
@@ -313,24 +391,10 @@ func (s *AuthService) AuthMiddleware() gin.HandlerFunc {
 
 		// Store both keys during the migration window to avoid breaking
 		// handlers that still read the legacy context name.
-		c.Set("user_id", claims.UserID)
-		c.Set("userID", claims.UserID)
-
-		// Query the fully-hydrated user object for downstream permission checks.
-		// Fall back to a plain user load when association tables are unavailable
-		// in narrower test fixtures.
-		var user models.User
-		err = s.db.
-			Preload("Roles.Permissions").
-			Preload("NodeAccess").
-			Where("id = ?", claims.UserID).
-			First(&user).Error
-		if err != nil {
-			err = s.db.Where("id = ?", claims.UserID).First(&user).Error
-		}
-		if err == nil {
-			c.Set("user", &user)
-		}
+		c.Set("user_id", user.ID)
+		c.Set("userID", user.ID)
+		c.Set("user", user)
+		c.Set("token_version", claims.TokenVersion)
 
 		c.Next()
 	}

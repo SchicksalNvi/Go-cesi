@@ -72,6 +72,7 @@ export const en = {
     loginFailed: 'Login failed',
     usernameRequired: 'Please enter username',
     passwordRequired: 'Please enter password',
+    defaultCredentialsHint: 'Please contact your administrator for access.',
   },
 
   // Dashboard

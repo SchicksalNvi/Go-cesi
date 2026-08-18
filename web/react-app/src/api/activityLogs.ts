@@ -22,6 +22,7 @@ export interface ActivityLogsFilters {
   action?: string;
   resource?: string;
   username?: string;
+  search?: string;
   start_time?: string;
   end_time?: string;
   page?: number;
@@ -73,6 +74,7 @@ class ActivityLogsAPI {
     if (filters.action) params.append('action', filters.action);
     if (filters.resource) params.append('resource', filters.resource);
     if (filters.username) params.append('username', filters.username);
+    if (filters.search) params.append('search', filters.search);
     if (filters.start_time) params.append('start_time', filters.start_time);
     if (filters.end_time) params.append('end_time', filters.end_time);
     if (filters.page) params.append('page', filters.page.toString());

@@ -26,14 +26,14 @@ jobs:
 
       - name: Create Release and Upload
         run: |
-          set -x
+          # 关闭 xtrace,避免 token 出现在 CI 日志中(L-09)
           VERSION=${GITHUB_REF_NAME}
           API_URL="${GITHUB_SERVER_URL}/api/v1"
           REPO="${GITHUB_REPOSITORY}"
           TOKEN="${{ secrets.RELEASE_TOKEN }}"
 
-          # 创建 Release
-          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+          # 创建 Release(使用 --fail-with-body,失败即退出)
+          RESPONSE=$(curl -s --fail-with-body -w "\n%{http_code}" -X POST \
             -H "Authorization: token ${TOKEN}" \
             -H "Content-Type: application/json" \
             -d "{\"tag_name\":\"${VERSION}\",\"name\":\"Release ${VERSION}\",\"body\":\"Automated release for ${VERSION}\"}" \
@@ -60,12 +60,16 @@ jobs:
           
           echo "Release ID: $RELEASE_ID"
 
-          # 上传附件
+          # 上传附件(--fail-with-body 上传失败立即退出,逐附件校验)
           for f in release/*.tar.gz; do
             [ -f "$f" ] || continue
             echo "Uploading $(basename $f)..."
-            curl -s -w "\nUpload status: %{http_code}\n" \
+            curl -s --fail-with-body -w "\nUpload status: %{http_code}\n" \
               -H "Authorization: token ${TOKEN}" \
               -F "attachment=@${f}" \
-              "${API_URL}/repos/${REPO}/releases/${RELEASE_ID}/assets?name=$(basename $f)"
+              "${API_URL}/repos/${REPO}/releases/${RELEASE_ID}/assets?name=$(basename $f)" || {
+                echo "Failed to upload $(basename $f)"
+                exit 1
+              }
           done
+          echo "All assets uploaded successfully"

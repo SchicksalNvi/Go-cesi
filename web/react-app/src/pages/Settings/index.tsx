@@ -15,6 +15,7 @@ import {
   Table,
   Typography,
   Upload,
+  Spin,
 } from 'antd';
 import {
   SaveOutlined,
@@ -433,7 +434,16 @@ const Settings: React.FC = () => {
     [t]
   );
 
-  if (!user?.is_admin) {
+  if (!user) {
+    // User data not loaded yet (e.g. token validation in progress) - show loading state
+    return (
+      <div style={{ padding: 24, display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '50vh' }}>
+        <Spin size="large" />
+      </div>
+    );
+  }
+
+  if (!user.is_admin) {
     return (
       <div style={{ padding: 24 }}>
         <Alert

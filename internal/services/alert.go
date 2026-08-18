@@ -454,10 +454,10 @@ func (s *AlertService) sendEmailNotification(notification *models.Notification, 
 		return err
 	}
 
-	// 这里应该实现实际的邮件发送逻辑
-	// 为了演示，我们只是记录日志
-	logger.Info("Sending email notification", zap.String("to", config["to"].(string)), zap.String("message", notification.Message))
-	return nil
+	// TODO: 实现实际的邮件发送逻辑
+	// 占位实现:仅记录日志并返回错误,告知调用方该功能尚未实现
+	logger.Info("Email notification placeholder (not implemented)", zap.String("message", notification.Message))
+	return fmt.Errorf("email notification is not implemented yet")
 }
 
 // sendSlackNotification 发送Slack通知
@@ -469,10 +469,10 @@ func (s *AlertService) sendSlackNotification(notification *models.Notification, 
 		return err
 	}
 
-	// 这里应该实现实际的Slack通知发送逻辑
-	// 为了演示，我们只是记录日志
-	logger.Info("Sending Slack notification", zap.String("webhook_url", config["webhook_url"].(string)), zap.String("message", notification.Message))
-	return nil
+	// TODO: 实现实际的Slack通知发送逻辑
+	// 占位实现:仅记录日志并返回错误,告知调用方该功能尚未实现
+	logger.Info("Slack notification placeholder (not implemented)", zap.String("message", notification.Message))
+	return fmt.Errorf("slack notification is not implemented yet")
 }
 
 // sendWebhookNotification 发送Webhook通知
@@ -484,10 +484,10 @@ func (s *AlertService) sendWebhookNotification(notification *models.Notification
 		return err
 	}
 
-	// 这里应该实现实际的Webhook发送逻辑
-	// 为了演示，我们只是记录日志
-	logger.Info("Sending webhook notification", zap.String("url", config["url"].(string)), zap.String("message", notification.Message))
-	return nil
+	// TODO: 实现实际的Webhook发送逻辑
+	// 占位实现:仅记录日志并返回错误,告知调用方该功能尚未实现
+	logger.Info("Webhook notification placeholder (not implemented)", zap.String("message", notification.Message))
+	return fmt.Errorf("webhook notification is not implemented yet")
 }
 
 // sendDingTalkNotification 发送钉钉通知
@@ -499,10 +499,10 @@ func (s *AlertService) sendDingTalkNotification(notification *models.Notificatio
 		return err
 	}
 
-	// 这里应该实现实际的钉钉通知发送逻辑
-	// 为了演示，我们只是记录日志
-	logger.Info("Sending DingTalk notification", zap.String("webhook_url", config["webhook_url"].(string)), zap.String("message", notification.Message))
-	return nil
+	// TODO: 实现实际的钉钉通知发送逻辑
+	// 占位实现:仅记录日志并返回错误,告知调用方该功能尚未实现
+	logger.Info("DingTalk notification placeholder (not implemented)", zap.String("message", notification.Message))
+	return fmt.Errorf("dingtalk notification is not implemented yet")
 }
 
 // GetAlertStatistics 获取告警统计信息

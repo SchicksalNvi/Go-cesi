@@ -3,6 +3,20 @@ import { User, Node, SystemStats } from '@/types';
 import { UserPreferences } from '@/api/settings';
 import { Language, translations, TranslationKeys } from '@/i18n';
 
+// Safely parse a JSON value from localStorage, falling back to a default
+// when the stored data is corrupt or unparseable.
+function safeParse<T>(storedValue: string | null, fallback: T): T {
+  if (!storedValue) {
+    return fallback;
+  }
+  try {
+    return JSON.parse(storedValue) as T;
+  } catch {
+    console.warn('Failed to parse stored state, using defaults');
+    return fallback;
+  }
+}
+
 interface AppState {
   // Language state
   language: Language;
@@ -54,7 +68,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   // Auth state - Initialize based on localStorage
-  user: JSON.parse(localStorage.getItem('user') || 'null'),
+  user: safeParse<User | null>(localStorage.getItem('user'), null),
   token: localStorage.getItem('token'),
   // Initialize as authenticated if both user and token exist
   isAuthenticated: !!(localStorage.getItem('token') && localStorage.getItem('user')),
@@ -82,7 +96,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   // User preferences state
-  userPreferences: JSON.parse(localStorage.getItem('userPreferences') || 'null'),
+  userPreferences: safeParse<UserPreferences | null>(localStorage.getItem('userPreferences'), null),
   setUserPreferences: (preferences) => {
     if (preferences) {
       localStorage.setItem('userPreferences', JSON.stringify(preferences));

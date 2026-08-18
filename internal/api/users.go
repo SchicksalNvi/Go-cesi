@@ -100,6 +100,21 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		return
 	}
 
+	// 只有超级管理员可以创建拥有管理员权限的用户
+	if req.IsAdmin {
+		currentUser, ok := getCurrentUser(c)
+		if !ok {
+			return
+		}
+		if !currentUser.IsSuperAdmin() {
+			c.JSON(http.StatusForbidden, gin.H{
+				"status":  "error",
+				"message": "Only super admins can create admin users",
+			})
+			return
+		}
+	}
+
 	user := &models.User{
 		Username: req.Username,
 		Email:    req.Email,
@@ -179,6 +194,14 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		user.FullName = req.FullName
 	}
 	if req.IsAdmin != nil {
+		// 只有超级管理员可以修改用户的 is_admin 字段
+		if !currentUser.IsSuperAdmin() {
+			c.JSON(http.StatusForbidden, gin.H{
+				"status":  "error",
+				"message": "Only super admins can modify user admin privileges",
+			})
+			return
+		}
 		if !*req.IsAdmin && user.IsSuperAdmin() {
 			if currentUser.ID == id {
 				c.JSON(http.StatusForbidden, gin.H{
@@ -417,8 +440,7 @@ func (h *UserHandler) ResetPassword(c *gin.Context) {
 		})
 		return
 	}
-
-	if err := h.userService.UpdateUser(user); err != nil {
+	if err := h.userService.SetPasswordAndRevokeSessions(user.ID, user.Password); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"status":  "error",
 			"message": err.Error(),

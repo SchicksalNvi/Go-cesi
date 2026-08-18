@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, Button, Card, Col, Form, Input, Row, Space, Typography, message } from 'antd';
 import { LockOutlined, MailOutlined, SaveOutlined, UserOutlined } from '@ant-design/icons';
 import { authApi } from '@/api/auth';
@@ -13,6 +13,9 @@ export default function Profile() {
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
+  // Guards against the load->setUser->re-render->load loop: only fetch the
+  // profile once per user (and again if a different user logs in).
+  const loadedUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -21,8 +24,12 @@ export default function Profile() {
         email: user.email || '',
         full_name: user.full_name || '',
       });
+      if (loadedUserIdRef.current !== user.id) {
+        loadedUserIdRef.current = user.id;
+        loadProfile();
+      }
     }
-    loadProfile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, profileForm]);
 
   const loadProfile = async () => {

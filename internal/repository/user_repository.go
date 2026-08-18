@@ -88,8 +88,62 @@ func (r *userRepository) GetByEmail(email string) (*models.User, error) {
 // Update 更新用户
 func (r *userRepository) Update(user *models.User) error {
 	db := r.GetDB()
-	if err := db.Save(user).Error; err != nil {
+	// TokenVersion is a monotonic revocation counter. A stale user object must
+	// never be able to restore an older value during an unrelated update.
+	if err := db.Omit("token_version").Save(user).Error; err != nil {
 		return errors.NewDatabaseError("update user", err)
+	}
+	return nil
+}
+
+// UpdateFields updates only the explicitly supplied user fields. This avoids
+// an unrelated write (for example last_login) overwriting account state loaded
+// before a concurrent deactivate/logout operation.
+func (r *userRepository) UpdateFields(id string, values map[string]interface{}) error {
+	db := r.GetDB()
+	result := db.Model(&models.User{}).Where("id = ?", id).Updates(values)
+	if result.Error != nil {
+		return errors.NewDatabaseError("update user fields", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return errors.NewNotFoundError("user", id)
+	}
+	return nil
+}
+
+// UpdateFieldsWithVersion updates only the explicitly supplied user fields,
+// guarded by a token_version predicate so a stale write (for example
+// last_login from a login racing a deactivation/password change) cannot
+// overwrite session state that changed concurrently.
+func (r *userRepository) UpdateFieldsWithVersion(id string, values map[string]interface{}, tokenVersion uint64) error {
+	db := r.GetDB()
+	result := db.Model(&models.User{}).Where("id = ? AND token_version = ?", id, tokenVersion).Updates(values)
+	if result.Error != nil {
+		return errors.NewDatabaseError("update user fields with version", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return errors.NewNotFoundError("user", id)
+	}
+	return nil
+}
+
+// UpdateFieldsAndRevokeSessions applies the requested change and increments
+// TokenVersion in the same SQL statement, so no valid-token window exists
+// between a password/status update and session revocation.
+func (r *userRepository) UpdateFieldsAndRevokeSessions(id string, values map[string]interface{}) error {
+	updates := make(map[string]interface{}, len(values)+1)
+	for key, value := range values {
+		updates[key] = value
+	}
+	updates["token_version"] = gorm.Expr("token_version + 1")
+
+	db := r.GetDB()
+	result := db.Model(&models.User{}).Where("id = ?", id).Updates(updates)
+	if result.Error != nil {
+		return errors.NewDatabaseError("update user and revoke sessions", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return errors.NewNotFoundError("user", id)
 	}
 	return nil
 }

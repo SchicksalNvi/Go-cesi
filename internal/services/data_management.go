@@ -2,32 +2,73 @@ package services
 
 import (
 	"archive/zip"
+	"context"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 	"superview/internal/database"
 	"superview/internal/logger"
 	"superview/internal/models"
-	"gorm.io/gorm"
 )
 
-// dataJobSlots 限制并发的导出/备份后台任务数，防止无界 goroutine 耗尽内存/磁盘/DB 连接。
-var dataJobSlots = make(chan struct{}, 2)
+const maxConcurrentDataJobs = 2
 
-// runDataJob 在受限并发的后台 goroutine 中运行任务，并从 panic 中恢复。
-func runDataJob(name, id string, fn func()) {
+// secretMask 用于掩码导出/备份中的秘密配置值(H-09)。
+const secretMask = "********"
+
+// isSecretSettingKey 判断系统设置键是否为敏感项,导出时需掩码(H-09)。
+func isSecretSettingKey(key string) bool {
+	lower := strings.ToLower(key)
+	for _, secretPart := range []string{"password", "secret", "token", "api_key", "apikey", "smtp_pass", "webhook"} {
+		if strings.Contains(lower, secretPart) {
+			return true
+		}
+	}
+	return false
+}
+
+var (
+	// ErrDataJobCapacity 表示共享的数据管理后台任务槽位已满。
+	ErrDataJobCapacity = errors.New("data management job capacity reached")
+
+	// dataJobSlots 由导出、导入和备份共享。槽位在启动 goroutine 前获取，
+	// 因而最多只会存在 maxConcurrentDataJobs 个后台任务 goroutine。
+	dataJobSlots   = make(chan struct{}, maxConcurrentDataJobs)
+	dataJobCancels sync.Map
+)
+
+func dataJobKey(name, id string) string {
+	return name + ":" + id
+}
+
+// runDataJob 在共享并发上限内启动可取消的后台任务，并从 panic 中恢复。
+func runDataJob(name, id string, fn func(context.Context)) error {
+	select {
+	case dataJobSlots <- struct{}{}:
+	default:
+		return ErrDataJobCapacity
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	key := dataJobKey(name, id)
+	dataJobCancels.Store(key, cancel)
+
 	go func() {
-		dataJobSlots <- struct{}{}
 		defer func() {
+			cancel()
+			dataJobCancels.Delete(key)
 			<-dataJobSlots
 			if r := recover(); r != nil {
 				logger.Error("data management job panicked",
@@ -36,8 +77,16 @@ func runDataJob(name, id string, fn func()) {
 					zap.Any("panic", r))
 			}
 		}()
-		fn()
+		fn(ctx)
 	}()
+
+	return nil
+}
+
+func cancelDataJob(name, id string) {
+	if cancel, ok := dataJobCancels.Load(dataJobKey(name, id)); ok {
+		cancel.(context.CancelFunc)()
+	}
 }
 
 // DataManagementService 数据管理服务
@@ -81,6 +130,77 @@ func (s *DataManagementService) CreateImportRecord(importType, sourceFile string
 	return record, nil
 }
 
+// ImportProcessor 处理一个已落盘的导入文件。
+type ImportProcessor func(ctx context.Context) (totalRecords int, validationLog string, err error)
+
+// StartImport 将导入加入与导出、备份共享的受限后台任务槽位。
+// 上传源文件采用即时清理策略：任务完成、失败、取消或无法入队时均尝试删除。
+func (s *DataManagementService) StartImport(record *models.DataImportRecord, processor ImportProcessor) error {
+	if record == nil {
+		return errors.New("import record is required")
+	}
+	if processor == nil {
+		return errors.New("import processor is required")
+	}
+
+	err := runDataJob("import", record.ID, func(ctx context.Context) {
+		defer s.cleanupImportSource(record)
+		defer func() {
+			if r := recover(); r != nil {
+				_ = s.UpdateImportStatus(record, models.StatusFailed, 0, 0, 0, fmt.Sprintf("import failed: %v", r), "")
+			}
+		}()
+
+		if err := ctx.Err(); err != nil {
+			_ = s.UpdateImportStatus(record, models.StatusFailed, 0, 0, 0, err.Error(), "")
+			return
+		}
+
+		if err := s.UpdateImportStatus(record, models.StatusRunning, 0, 0, 0, "", ""); err != nil {
+			logger.Error("failed to mark import as running",
+				zap.String("id", record.ID),
+				zap.Error(err))
+		}
+
+		totalRecords, validationLog, processErr := processor(ctx)
+		if processErr != nil {
+			_ = s.UpdateImportStatus(record, models.StatusFailed, totalRecords, 0, totalRecords, processErr.Error(), validationLog)
+			return
+		}
+
+		_ = s.UpdateImportStatus(record, models.StatusCompleted, totalRecords, totalRecords, 0, "", validationLog)
+	})
+	if err != nil {
+		_ = s.UpdateImportStatus(record, models.StatusFailed, 0, 0, 0, err.Error(), "")
+		s.cleanupImportSource(record)
+		return err
+	}
+
+	return nil
+}
+
+func (s *DataManagementService) cleanupImportSource(record *models.DataImportRecord) {
+	if record.SourceFile == "" {
+		return
+	}
+
+	if err := os.Remove(record.SourceFile); err != nil && !os.IsNotExist(err) {
+		logger.Warn("failed to remove import source file",
+			zap.String("id", record.ID),
+			zap.String("path", record.SourceFile),
+			zap.Error(err))
+		return
+	}
+
+	if err := s.DB.Model(&models.DataImportRecord{}).
+		Where("id = ?", record.ID).
+		Update("source_file", "").Error; err != nil {
+		logger.Error("failed to clear import source path",
+			zap.String("id", record.ID),
+			zap.Error(err))
+	}
+}
+
 // ExportData 导出数据
 func (s *DataManagementService) ExportData(exportType, format, createdBy string) (*models.DataExportRecord, error) {
 	// 创建导出记录
@@ -98,8 +218,11 @@ func (s *DataManagementService) ExportData(exportType, format, createdBy string)
 		return nil, fmt.Errorf("failed to create export record: %v", err)
 	}
 
-	// 异步执行导出（受限并发 + panic 恢复）
-	runDataJob("export", exportRecord.ID, func() { s.performExport(exportRecord) })
+	// 异步执行导出（共享并发上限 + panic 恢复）
+	if err := runDataJob("export", exportRecord.ID, func(context.Context) { s.performExport(exportRecord) }); err != nil {
+		s.updateExportStatus(exportRecord, models.StatusFailed, err.Error())
+		return nil, fmt.Errorf("failed to start export: %w", err)
+	}
 
 	return exportRecord, nil
 }
@@ -212,6 +335,13 @@ func (s *DataManagementService) exportConfigs(filePath, format string) (int, err
 		return 0, err
 	}
 
+	// H-09: 导出时掩码秘密值,防止敏感配置(如 SMTP 密码、密钥)随导出泄露
+	for i := range configs {
+		if configs[i].IsSecret && configs[i].Value != "" {
+			configs[i].Value = secretMask
+		}
+	}
+
 	switch format {
 	case models.ExportFormatJSON:
 		return len(configs), s.exportToJSON(filePath, configs)
@@ -247,38 +377,53 @@ func (s *DataManagementService) exportAll(filePath, format string) (int, error) 
 
 	// 用户数据
 	var users []models.User
-	if err := s.DB.Preload("Roles").Find(&users).Error; err == nil {
-		allData["users"] = users
-		totalRecords += len(users)
+	if err := s.DB.Preload("Roles").Find(&users).Error; err != nil {
+		return 0, fmt.Errorf("failed to export users: %w", err)
 	}
+	allData["users"] = users
+	totalRecords += len(users)
 
-	// 日志数据
+	// 日志数据(M-01: 查询失败必须返回错误,不能静默跳过)
 	var logs []models.ActivityLog
-	if err := s.DB.Order("created_at DESC").Limit(maxExportLogs).Find(&logs).Error; err == nil {
-		if len(logs) == maxExportLogs {
-			logger.Warn("activity log export truncated to limit; older logs not included",
-				zap.Int("limit", maxExportLogs))
-		}
-		allData["logs"] = logs
-		totalRecords += len(logs)
+	if err := s.DB.Order("created_at DESC").Limit(maxExportLogs).Find(&logs).Error; err != nil {
+		return 0, fmt.Errorf("failed to export logs: %w", err)
 	}
+	if len(logs) == maxExportLogs {
+		logger.Warn("activity log export truncated to limit; older logs not included",
+			zap.Int("limit", maxExportLogs))
+	}
+	allData["logs"] = logs
+	totalRecords += len(logs)
 
-	// 配置数据
+	// 配置数据(H-09: 掩码秘密值)
 	var configs []models.Configuration
-	if err := s.DB.Find(&configs).Error; err == nil {
-		allData["configs"] = configs
-		totalRecords += len(configs)
+	if err := s.DB.Find(&configs).Error; err != nil {
+		return 0, fmt.Errorf("failed to export configs: %w", err)
 	}
+	for i := range configs {
+		if configs[i].IsSecret && configs[i].Value != "" {
+			configs[i].Value = secretMask
+		}
+	}
+	allData["configs"] = configs
+	totalRecords += len(configs)
 
 	// 系统设置
 	var settings []models.SystemSettings
-	if err := s.DB.Find(&settings).Error; err == nil {
-		allData["settings"] = settings
-		totalRecords += len(settings)
+	if err := s.DB.Find(&settings).Error; err != nil {
+		return 0, fmt.Errorf("failed to export settings: %w", err)
 	}
+	for i := range settings {
+		if isSecretSettingKey(settings[i].Key) && settings[i].Value != "" {
+			settings[i].Value = secretMask
+		}
+	}
+	allData["settings"] = settings
+	totalRecords += len(settings)
 
 	allData["export_time"] = time.Now()
 	allData["version"] = "1.0"
+	allData["truncated"] = len(logs) == maxExportLogs
 
 	return totalRecords, s.exportToJSON(filePath, allData)
 }
@@ -484,6 +629,11 @@ func (s *DataManagementService) DeleteImportRecord(id string) error {
 		return err
 	}
 
+	// M-34: 先取消作业,再短暂等待作业协程识别取消并完成其 deferred 清理
+	// (移除导入源文件等),避免删除记录后作业仍回写状态。
+	cancelDataJob("import", id)
+	time.Sleep(150 * time.Millisecond)
+
 	if record.SourceFile != "" {
 		_ = os.Remove(record.SourceFile)
 	}
@@ -507,8 +657,11 @@ func (s *DataManagementService) CreateBackup(backupType, name, description, crea
 		return nil, fmt.Errorf("failed to create backup record: %v", err)
 	}
 
-	// 异步执行备份（受限并发 + panic 恢复）
-	runDataJob("backup", backupRecord.ID, func() { s.performBackup(backupRecord) })
+	// 异步执行备份（共享并发上限 + panic 恢复）
+	if err := runDataJob("backup", backupRecord.ID, func(context.Context) { s.performBackup(backupRecord) }); err != nil {
+		s.updateBackupStatus(backupRecord, models.StatusFailed, err.Error())
+		return nil, fmt.Errorf("failed to start backup: %w", err)
+	}
 
 	return backupRecord, nil
 }
@@ -524,6 +677,13 @@ func (s *DataManagementService) performBackup(record *models.BackupRecord) {
 	backupDir := "data/backups"
 	if err := os.MkdirAll(backupDir, 0755); err != nil {
 		s.updateBackupStatus(record, models.StatusFailed, fmt.Sprintf("Failed to create backup directory: %v", err))
+		return
+	}
+
+	// M-10: 防止备份名称包含路径穿越字符,避免写文件到任意目录
+	cleanName := filepath.Clean(record.Name)
+	if cleanName != record.Name || strings.Contains(record.Name, "..") || strings.ContainsAny(record.Name, `/\`) {
+		s.updateBackupStatus(record, models.StatusFailed, "backup name contains invalid path characters")
 		return
 	}
 
@@ -565,6 +725,15 @@ func (s *DataManagementService) performBackup(record *models.BackupRecord) {
 
 // createFullBackup 创建完整备份
 func (s *DataManagementService) createFullBackup(backupFilePath string) error {
+	// H-10: SQLite 运行在 WAL 模式,最新已提交事务可能仍驻留在 -wal 文件中。
+	// 直接复制主库文件会产生不一致快照。先执行 checkpoint 将 WAL 合并回主库文件,
+	// 再复制,确保备份包含全部已提交数据。
+	if s.DB != nil {
+		if err := s.DB.Exec("PRAGMA wal_checkpoint(TRUNCATE)").Error; err != nil {
+			logger.Warn("WAL checkpoint before backup failed, backup may be inconsistent", zap.Error(err))
+		}
+	}
+
 	// 创建ZIP文件
 	zipFile, err := os.Create(backupFilePath)
 	if err != nil {
@@ -580,7 +749,7 @@ func (s *DataManagementService) createFullBackup(backupFilePath string) error {
 		return fmt.Errorf("failed to backup database: %v", err)
 	}
 
-	// 备份配置文件（不存在时忽略，其它 I/O 错误记录但不中断备份）
+	// 备份配置文件(不存在时忽略,其它 I/O 错误记录但不中断备份)
 	if err := s.addFileToZip(zipWriter, "config.toml", "config.toml"); err != nil && !os.IsNotExist(err) {
 		logger.Warn("failed to add config.toml to backup", zap.Error(err))
 	}
@@ -588,16 +757,25 @@ func (s *DataManagementService) createFullBackup(backupFilePath string) error {
 	// 备份日志文件
 	logDir := "logs"
 	if _, err := os.Stat(logDir); err == nil {
-		filepath.Walk(logDir, func(path string, info os.FileInfo, err error) error {
+		// M-10: Walk 与 addFileToZip 的错误必须传播,不能静默忽略
+		walkErr := filepath.Walk(logDir, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
 			if !info.IsDir() {
-				relPath, _ := filepath.Rel(".", path)
-				s.addFileToZip(zipWriter, path, relPath)
+				relPath, relErr := filepath.Rel(".", path)
+				if relErr != nil {
+					return relErr
+				}
+				if err := s.addFileToZip(zipWriter, path, relPath); err != nil {
+					return err
+				}
 			}
 			return nil
 		})
+		if walkErr != nil {
+			logger.Warn("failed to add log files to backup", zap.Error(walkErr))
+		}
 	}
 
 	return nil
@@ -605,8 +783,8 @@ func (s *DataManagementService) createFullBackup(backupFilePath string) error {
 
 // createConfigBackup 创建配置备份
 func (s *DataManagementService) createConfigBackup(backupFilePath string) error {
-	// 导出配置数据为JSON
-	tempDir := "data/temp"
+	// M-10: 使用每次任务唯一的临时目录,避免并发配置备份互相覆盖
+	tempDir := filepath.Join("data", "temp", uuid.New().String())
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
 		return err
 	}

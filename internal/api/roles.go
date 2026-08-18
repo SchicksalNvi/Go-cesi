@@ -59,6 +59,14 @@ func (h *RoleHandler) CreateRole(c *gin.Context) {
 		c.JSON(http.StatusForbidden, ErrorResponse{Error: "权限不足"})
 		return
 	}
+
+	// 只有超级管理员可以创建系统角色或保留名称的角色
+	if role.IsSystem || isSystemRoleName(role.Name) {
+		if !currentUser.IsSuperAdmin() {
+			c.JSON(http.StatusForbidden, ErrorResponse{Error: "只有超级管理员可以管理系统角色"})
+			return
+		}
+	}
 	
 	if err := h.roleService.CreateRole(&role); err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
@@ -194,6 +202,19 @@ func (h *RoleHandler) UpdateRole(c *gin.Context) {
 		c.JSON(http.StatusForbidden, ErrorResponse{Error: "权限不足"})
 		return
 	}
+
+	// 只有超级管理员可以更新系统角色
+	existingRole, err := h.roleService.GetRoleByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, ErrorResponse{Error: "角色不存在"})
+		return
+	}
+	if existingRole.IsSystem {
+		if !currentUser.IsSuperAdmin() {
+			c.JSON(http.StatusForbidden, ErrorResponse{Error: "只有超级管理员可以修改系统角色"})
+			return
+		}
+	}
 	
 	var role models.Role
 	if err := c.ShouldBindJSON(&role); err != nil {
@@ -240,6 +261,15 @@ func (h *RoleHandler) DeleteRole(c *gin.Context) {
 		c.JSON(http.StatusForbidden, ErrorResponse{Error: "权限不足"})
 		return
 	}
+
+	// 只有超级管理员可以删除系统角色
+	existingRole, err := h.roleService.GetRoleByID(id)
+	if err == nil && existingRole.IsSystem {
+		if !currentUser.IsSuperAdmin() {
+			c.JSON(http.StatusForbidden, ErrorResponse{Error: "只有超级管理员可以删除系统角色"})
+			return
+		}
+	}
 	
 	if err := h.roleService.DeleteRole(id); err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
@@ -280,6 +310,19 @@ func (h *RoleHandler) AssignPermissions(c *gin.Context) {
 	if !currentUser.HasPermission(models.PermissionUserWrite) {
 		c.JSON(http.StatusForbidden, ErrorResponse{Error: "权限不足"})
 		return
+	}
+
+	// 只有超级管理员可以修改系统角色的权限
+	role, err := h.roleService.GetRoleByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, ErrorResponse{Error: "角色不存在"})
+		return
+	}
+	if role.IsSystem {
+		if !currentUser.IsSuperAdmin() {
+			c.JSON(http.StatusForbidden, ErrorResponse{Error: "只有超级管理员可以修改系统角色的权限"})
+			return
+		}
 	}
 	
 	var permissionIDs []string
@@ -329,6 +372,23 @@ func (h *RoleHandler) AssignRoleToUser(c *gin.Context) {
 		c.JSON(http.StatusForbidden, ErrorResponse{Error: "权限不足"})
 		return
 	}
+
+	// 只有超级管理员可以分配/移除系统角色(如 super_admin)
+	role, err := h.roleService.GetRoleByID(roleID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, ErrorResponse{Error: "角色不存在"})
+		return
+	}
+	if role.IsSystem && !currentUser.IsSuperAdmin() {
+		c.JSON(http.StatusForbidden, ErrorResponse{Error: "只有超级管理员可以分配系统角色"})
+		return
+	}
+
+	// 禁止用户给自己分配系统角色(自我提权防护)
+	if role.IsSystem && userID == currentUser.ID {
+		c.JSON(http.StatusForbidden, ErrorResponse{Error: "禁止自我分配系统角色"})
+		return
+	}
 	
 	if err := h.roleService.AssignRoleToUser(userID, roleID, currentUser.ID); err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
@@ -368,6 +428,15 @@ func (h *RoleHandler) RemoveRoleFromUser(c *gin.Context) {
 	if !currentUser.HasPermission(models.PermissionUserWrite) {
 		c.JSON(http.StatusForbidden, ErrorResponse{Error: "权限不足"})
 		return
+	}
+
+	// 只有超级管理员可以移除系统角色
+	role, err := h.roleService.GetRoleByID(roleID)
+	if err == nil && role.IsSystem {
+		if !currentUser.IsSuperAdmin() {
+			c.JSON(http.StatusForbidden, ErrorResponse{Error: "只有超级管理员可以移除系统角色"})
+			return
+		}
 	}
 	
 	if err := h.roleService.RemoveRoleFromUser(userID, roleID); err != nil {
@@ -422,4 +491,13 @@ func (h *RoleHandler) GetPermissions(c *gin.Context) {
 	}
 	
 	c.JSON(http.StatusOK, permissions)
+}
+
+// isSystemRoleName 判断角色名是否为预定义的系统角色
+func isSystemRoleName(name string) bool {
+	switch name {
+	case models.RoleSuperAdmin, models.RoleEnvironmentAdmin, models.RoleNodeOperator, models.RoleReadOnlyUser:
+		return true
+	}
+	return false
 }

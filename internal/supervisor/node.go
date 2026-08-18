@@ -496,8 +496,8 @@ func extractTimestamp(line string) time.Time {
 		"Jan 02 15:04:05",
 	}
 	
-	// 获取本地时区
-	loc := time.Local
+	// 使用配置的日志时区(而非本地时区)
+	loc := LogTimezone
 	
 	for _, format := range formats {
 		// 尝试从行首提取时间戳
@@ -578,6 +578,21 @@ func (n *Node) GetConnectionStatus() (bool, time.Time) {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 	return n.IsConnected, n.LastPing
+}
+
+// SetConnectionStatus 安全地设置连接状态和最后ping时间
+func (n *Node) SetConnectionStatus(isConnected bool, lastPing time.Time) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.IsConnected = isConnected
+	n.LastPing = lastPing
+}
+
+// SetConnected 安全地设置连接状态
+func (n *Node) SetConnected(isConnected bool) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.IsConnected = isConnected
 }
 
 // GetProcessCount 安全地获取进程数量

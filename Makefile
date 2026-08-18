@@ -22,6 +22,7 @@ backend:
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) \
 	GOGC=20 GOMEMLIMIT=1200MiB \
 		go build -ldflags="-s -w" -o $(BUILD_DIR)/$(APP_NAME) cmd/main.go
+	@cp -f $(BUILD_DIR)/$(APP_NAME) ./$(APP_NAME)
 
 ## 打包发布（前端需提前构建: make frontend）
 release: backend

@@ -23,6 +23,8 @@ func NewFileLogger(filePath string, maxSize int64, backups int) (*FileLogger, er
 		backups:  backups,
 	}
 
+	logger.mu.Lock()
+	defer logger.mu.Unlock()
 	if err := logger.openFile(); err != nil {
 		return nil, err
 	}
@@ -30,10 +32,8 @@ func NewFileLogger(filePath string, maxSize int64, backups int) (*FileLogger, er
 	return logger, nil
 }
 
+// openFile 打开日志文件。调用方必须已持有 l.mu 锁(L-05: 避免 rotate→openFile 重入死锁)。
 func (l *FileLogger) openFile() error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
 	// 确保目录存在
 	if err := os.MkdirAll(filepath.Dir(l.filePath), 0755); err != nil {
 		return fmt.Errorf("failed to create log directory: %v", err)

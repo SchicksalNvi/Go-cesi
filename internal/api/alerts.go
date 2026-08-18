@@ -121,6 +121,9 @@ func (h *AlertHandler) CreateAlertRule(c *gin.Context) {
 func (h *AlertHandler) GetAlertRules(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if pageSize <= 0 {
+		pageSize = 20
+	}
 
 	filters := make(map[string]interface{})
 	if enabled := c.Query("enabled"); enabled != "" {
@@ -291,6 +294,9 @@ func (h *AlertHandler) DeleteAlertRule(c *gin.Context) {
 func (h *AlertHandler) GetAlerts(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if pageSize <= 0 {
+		pageSize = 20
+	}
 
 	filters := make(map[string]interface{})
 	if status := c.Query("status"); status != "" {
@@ -474,6 +480,9 @@ func (h *AlertHandler) CreateNotificationChannel(c *gin.Context) {
 func (h *AlertHandler) GetNotificationChannels(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if pageSize <= 0 {
+		pageSize = 20
+	}
 
 	filters := make(map[string]interface{})
 	if enabled := c.Query("enabled"); enabled != "" {

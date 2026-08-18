@@ -458,11 +458,10 @@ func (s *ConfigurationService) GetBackupByID(id uint, userID string) (*models.Co
 }
 
 // RestoreBackup 恢复备份
-func (s *ConfigurationService) RestoreBackup(id uint, userID string, options map[string]interface{}) error {
+func (s *ConfigurationService) RestoreBackup(id uint, userID string, options map[string]interface{}) (err error) {
 	// 获取备份
 	var backup models.ConfigurationBackup
-	err := s.db.First(&backup, id).Error
-	if err != nil {
+	if err = s.db.First(&backup, id).Error; err != nil {
 		return err
 	}
 
@@ -472,11 +471,14 @@ func (s *ConfigurationService) RestoreBackup(id uint, userID string, options map
 		return err
 	}
 
-	// 开始事务
+	// 开始事务(L-14: 命名返回值,recover 时把错误回传给调用方,避免虚假成功)
 	tx := s.db.Begin()
 	defer func() {
 		if r := recover(); r != nil {
 			tx.Rollback()
+			if err == nil {
+				err = fmt.Errorf("recovered from panic during restore: %v", r)
+			}
 		}
 	}()
 
@@ -500,16 +502,22 @@ func (s *ConfigurationService) RestoreBackup(id uint, userID string, options map
 			existErr := tx.Where("key = ? AND scope = ? AND COALESCE(node_id, 0) = COALESCE(?, 0) AND COALESCE(user_id, '') = COALESCE(?, '')",
 				config.Key, config.Scope, config.NodeID, config.UserID).First(&existing).Error
 			if existErr == nil {
-				// 更新现有配置
-				tx.Model(&existing).Updates(map[string]interface{}{
+				// 更新现有配置(M-15: 检查错误)
+				if err := tx.Model(&existing).Updates(map[string]interface{}{
 					"value":       config.Value,
 					"description": config.Description,
 					"updated_at":  time.Now(),
 					"updated_by":  userID,
-				})
+				}).Error; err != nil {
+					tx.Rollback()
+					return fmt.Errorf("failed to update configuration %s: %w", config.Key, err)
+				}
 			} else {
-				// 创建新配置
-				tx.Create(&config)
+				// 创建新配置(M-15: 检查错误)
+				if err := tx.Create(&config).Error; err != nil {
+					tx.Rollback()
+					return fmt.Errorf("failed to create configuration %s: %w", config.Key, err)
+				}
 			}
 		}
 	}
@@ -545,25 +553,31 @@ func (s *ConfigurationService) RestoreBackup(id uint, userID string, options map
 
 			existErr := query.First(&existing).Error
 			if existErr == nil {
-				// 更新现有环境变量
-				tx.Model(&existing).Updates(map[string]interface{}{
+				// 更新现有环境变量(M-15: 检查错误)
+				if err := tx.Model(&existing).Updates(map[string]interface{}{
 					"value":       envVar.Value,
 					"description": envVar.Description,
 					"is_secret":   envVar.IsSecret,
 					"is_active":   envVar.IsActive,
 					"updated_at":  time.Now(),
 					"updated_by":  userID,
-				})
+				}).Error; err != nil {
+					tx.Rollback()
+					return fmt.Errorf("failed to update environment variable %s: %w", envVar.Name, err)
+				}
 			} else {
-				// 创建新环境变量
-				tx.Create(&envVar)
+				// 创建新环境变量(M-15: 检查错误)
+				if err := tx.Create(&envVar).Error; err != nil {
+					tx.Rollback()
+					return fmt.Errorf("failed to create environment variable %s: %w", envVar.Name, err)
+				}
 			}
 		}
 	}
 
-	// 提交事务
-	err = tx.Commit().Error
-	if err != nil {
+	// 提交事务(L-14: 提交失败时回滚)
+	if err = tx.Commit().Error; err != nil {
+		tx.Rollback()
 		return err
 	}
 
@@ -636,12 +650,15 @@ func (s *ConfigurationService) ExportConfigurations(filters map[string]interface
 }
 
 // ImportConfigurations 导入配置
-func (s *ConfigurationService) ImportConfigurations(data map[string]interface{}, userID string, options map[string]interface{}) error {
-	// 开始事务
+func (s *ConfigurationService) ImportConfigurations(data map[string]interface{}, userID string, options map[string]interface{}) (err error) {
+	// 开始事务(M-15: 所有 Create/Updates 错误均导致回滚)
 	tx := s.db.Begin()
 	defer func() {
 		if r := recover(); r != nil {
 			tx.Rollback()
+			if err == nil {
+				err = fmt.Errorf("recovered from panic during import: %v", r)
+			}
 		}
 	}()
 
@@ -671,18 +688,24 @@ func (s *ConfigurationService) ImportConfigurations(data map[string]interface{},
 				config.Key, config.Scope, config.NodeID, config.UserID).First(&existing).Error
 			if existErr == nil {
 				if overwriteExisting {
-					// 更新现有配置
-					tx.Model(&existing).Updates(map[string]interface{}{
+					// 更新现有配置(M-15: 检查错误)
+					if err := tx.Model(&existing).Updates(map[string]interface{}{
 						"value":       config.Value,
 						"description": config.Description,
 						"updated_at":  time.Now(),
 						"updated_by":  userID,
-					})
+					}).Error; err != nil {
+						tx.Rollback()
+						return fmt.Errorf("failed to update configuration %s: %w", config.Key, err)
+					}
 				}
-				// 如果不覆盖，跳过已存在的配置
+				// 如果不覆盖,跳过已存在的配置
 			} else {
-				// 创建新配置
-				tx.Create(&config)
+				// 创建新配置(M-15: 检查错误)
+				if err := tx.Create(&config).Error; err != nil {
+					tx.Rollback()
+					return fmt.Errorf("failed to create configuration %s: %w", config.Key, err)
+				}
 			}
 		}
 	}
@@ -719,25 +742,31 @@ func (s *ConfigurationService) ImportConfigurations(data map[string]interface{},
 			existErr := query.First(&existing).Error
 			if existErr == nil {
 				if overwriteExisting {
-					// 更新现有环境变量
-					tx.Model(&existing).Updates(map[string]interface{}{
+					// 更新现有环境变量(M-15: 检查错误)
+					if err := tx.Model(&existing).Updates(map[string]interface{}{
 						"value":       envVar.Value,
 						"description": envVar.Description,
 						"is_secret":   envVar.IsSecret,
 						"is_active":   envVar.IsActive,
 						"updated_at":  time.Now(),
 						"updated_by":  userID,
-					})
+					}).Error; err != nil {
+						tx.Rollback()
+						return fmt.Errorf("failed to update environment variable %s: %w", envVar.Name, err)
+					}
 				}
 			} else {
-				// 创建新环境变量
-				tx.Create(&envVar)
+				// 创建新环境变量(M-15: 检查错误)
+				if err := tx.Create(&envVar).Error; err != nil {
+					tx.Rollback()
+					return fmt.Errorf("failed to create environment variable %s: %w", envVar.Name, err)
+				}
 			}
 		}
 	}
 
 	// 提交事务
-	err := tx.Commit().Error
+	err = tx.Commit().Error
 	if err != nil {
 		return err
 	}

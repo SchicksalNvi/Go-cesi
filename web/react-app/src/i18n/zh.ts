@@ -74,6 +74,7 @@ export const zh: TranslationKeys = {
     loginFailed: '登录失败',
     usernameRequired: '请输入用户名',
     passwordRequired: '请输入密码',
+    defaultCredentialsHint: '请联系管理员获取访问权限。',
   },
 
   // Dashboard

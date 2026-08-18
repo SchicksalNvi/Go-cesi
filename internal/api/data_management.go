@@ -1,20 +1,25 @@
 package api
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"superview/internal/models"
 	"superview/internal/services"
 	"superview/internal/validation"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // DataManagementAPI 数据管理API
@@ -65,41 +70,82 @@ var supportedImportTypes = map[string]bool{
 	models.ImportTypeConfigs: true,
 }
 
+const (
+	maxImportFileSize     int64 = 32 << 20 // 32 MiB
+	maxImportRequestSize        = maxImportFileSize + (1 << 20)
+	importMultipartMemory int64 = 1 << 20 // 超过 1 MiB 的 multipart 内容落临时文件
+)
+
+var errImportTooLarge = errors.New("import file exceeds the 32 MiB limit")
+
+type configImportDecodeState struct {
+	configurations     []interface{}
+	configAlias        []interface{}
+	environmentVars    []interface{}
+	hasConfigurations  bool
+	hasConfigAlias     bool
+	hasEnvironmentVars bool
+}
+
 func normalizeConfigImportPayload(data []byte) (map[string]interface{}, int, string, error) {
-	var raw interface{}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, 0, "", fmt.Errorf("failed to parse JSON: %v", err)
+	return decodeConfigImportPayload(bytes.NewReader(data))
+}
+
+func decodeConfigImportPayload(reader io.Reader) (map[string]interface{}, int, string, error) {
+	decoder := json.NewDecoder(reader)
+	decoder.UseNumber()
+
+	firstToken, err := decoder.Token()
+	if err != nil {
+		return nil, 0, "", fmt.Errorf("failed to parse JSON: %w", err)
 	}
 
-	payload := make(map[string]interface{})
-	totalRecords := 0
-	configCount := 0
-	envVarCount := 0
+	delimiter, ok := firstToken.(json.Delim)
+	if !ok {
+		return nil, 0, "", fmt.Errorf("unsupported import payload structure")
+	}
 
-	switch value := raw.(type) {
-	case []interface{}:
-		payload["configurations"] = value
-		configCount = len(value)
-	case map[string]interface{}:
-		if nestedData, ok := value["data"].(map[string]interface{}); ok {
-			value = nestedData
+	var state configImportDecodeState
+	switch delimiter {
+	case '[':
+		configs, err := decodeConfigImportArray(decoder)
+		if err != nil {
+			return nil, 0, "", fmt.Errorf("failed to parse JSON: %w", err)
 		}
-		if configs, ok := value["configurations"].([]interface{}); ok {
-			payload["configurations"] = configs
-			configCount = len(configs)
-		} else if configs, ok := value["configs"].([]interface{}); ok {
-			payload["configurations"] = configs
-			configCount = len(configs)
-		}
-		if envVars, ok := value["environment_variables"].([]interface{}); ok {
-			payload["environment_variables"] = envVars
-			envVarCount = len(envVars)
+		state.configurations = configs
+		state.hasConfigurations = true
+	case '{':
+		state, err = decodeConfigImportObject(decoder)
+		if err != nil {
+			return nil, 0, "", fmt.Errorf("failed to parse JSON: %w", err)
 		}
 	default:
 		return nil, 0, "", fmt.Errorf("unsupported import payload structure")
 	}
 
-	totalRecords = configCount + envVarCount
+	var trailing interface{}
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return nil, 0, "", fmt.Errorf("failed to parse JSON: multiple JSON values are not allowed")
+		}
+		return nil, 0, "", fmt.Errorf("failed to parse JSON: %w", err)
+	}
+
+	payload := make(map[string]interface{})
+	configs := state.configurations
+	if !state.hasConfigurations && state.hasConfigAlias {
+		configs = state.configAlias
+	}
+	if state.hasConfigurations || state.hasConfigAlias {
+		payload["configurations"] = configs
+	}
+	if state.hasEnvironmentVars {
+		payload["environment_variables"] = state.environmentVars
+	}
+
+	configCount := len(configs)
+	envVarCount := len(state.environmentVars)
+	totalRecords := configCount + envVarCount
 	if totalRecords == 0 {
 		return nil, 0, "", fmt.Errorf("no configurations or environment variables found in import file")
 	}
@@ -108,18 +154,212 @@ func normalizeConfigImportPayload(data []byte) (map[string]interface{}, int, str
 	return payload, totalRecords, summary, nil
 }
 
-func (api *DataManagementAPI) processConfigImport(filePath, userID string, overwriteExisting bool) (int, string, error) {
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return 0, "", fmt.Errorf("failed to read file: %v", err)
+func decodeConfigImportObject(decoder *json.Decoder) (configImportDecodeState, error) {
+	var state configImportDecodeState
+	var nestedState *configImportDecodeState
+
+	for decoder.More() {
+		keyToken, err := decoder.Token()
+		if err != nil {
+			return state, err
+		}
+		key, ok := keyToken.(string)
+		if !ok {
+			return state, fmt.Errorf("object key is not a string")
+		}
+
+		switch key {
+		case "configurations":
+			state.configurations, err = decodeConfigImportArrayValue(decoder, key)
+			state.hasConfigurations = err == nil
+		case "configs":
+			state.configAlias, err = decodeConfigImportArrayValue(decoder, key)
+			state.hasConfigAlias = err == nil
+		case "environment_variables":
+			state.environmentVars, err = decodeConfigImportArrayValue(decoder, key)
+			state.hasEnvironmentVars = err == nil
+		case "data":
+			var nested configImportDecodeState
+			nested, ok, err = decodeNestedConfigImportObject(decoder)
+			if ok {
+				nestedState = &nested
+			}
+		default:
+			err = skipJSONValue(decoder)
+		}
+		if err != nil {
+			return state, err
+		}
 	}
 
-	payload, totalRecords, validationLog, err := normalizeConfigImportPayload(data)
+	endToken, err := decoder.Token()
+	if err != nil {
+		return state, err
+	}
+	if endToken != json.Delim('}') {
+		return state, fmt.Errorf("expected end of object")
+	}
+	if nestedState != nil {
+		return *nestedState, nil
+	}
+	return state, nil
+}
+
+func decodeNestedConfigImportObject(decoder *json.Decoder) (configImportDecodeState, bool, error) {
+	firstToken, err := decoder.Token()
+	if err != nil {
+		return configImportDecodeState{}, false, err
+	}
+	delimiter, ok := firstToken.(json.Delim)
+	if ok && delimiter == '{' {
+		state, err := decodeConfigImportObject(decoder)
+		return state, true, err
+	}
+	if err := skipJSONToken(decoder, firstToken); err != nil {
+		return configImportDecodeState{}, false, err
+	}
+	return configImportDecodeState{}, false, nil
+}
+
+func decodeConfigImportArrayValue(decoder *json.Decoder, field string) ([]interface{}, error) {
+	firstToken, err := decoder.Token()
+	if err != nil {
+		return nil, err
+	}
+	delimiter, ok := firstToken.(json.Delim)
+	if !ok || delimiter != '[' {
+		if err := skipJSONToken(decoder, firstToken); err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("%s must be an array", field)
+	}
+	return decodeConfigImportArray(decoder)
+}
+
+func decodeConfigImportArray(decoder *json.Decoder) ([]interface{}, error) {
+	items := make([]interface{}, 0)
+	for decoder.More() {
+		var item interface{}
+		if err := decoder.Decode(&item); err != nil {
+			return nil, err
+		}
+		// M-33: UseNumber 解码出的 json.Number 在后续 json.Marshal 时会变成带引号字符串,
+		// 破坏数字类型配置值。此处统一还原为 float64/int64。
+		items = append(items, convertJSONNumberValues(item))
+	}
+
+	endToken, err := decoder.Token()
+	if err != nil {
+		return nil, err
+	}
+	if endToken != json.Delim(']') {
+		return nil, fmt.Errorf("expected end of array")
+	}
+	return items, nil
+}
+
+// convertJSONNumberValues 将 json.Number 递归还原为 float64(整数还原为 int64),
+// 避免 UseNumber 解码后数字被序列化为带引号字符串(M-33)。
+func convertJSONNumberValues(v interface{}) interface{} {
+	switch val := v.(type) {
+	case json.Number:
+		if i, err := val.Int64(); err == nil {
+			return i
+		}
+		if f, err := val.Float64(); err == nil {
+			return f
+		}
+		return val.String()
+	case map[string]interface{}:
+		for k, mv := range val {
+			val[k] = convertJSONNumberValues(mv)
+		}
+		return val
+	case []interface{}:
+		for i, mv := range val {
+			val[i] = convertJSONNumberValues(mv)
+		}
+		return val
+	default:
+		return v
+	}
+}
+
+func skipJSONValue(decoder *json.Decoder) error {
+	firstToken, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	return skipJSONToken(decoder, firstToken)
+}
+
+func skipJSONToken(decoder *json.Decoder, token json.Token) error {
+	delimiter, ok := token.(json.Delim)
+	if !ok {
+		return nil
+	}
+
+	switch delimiter {
+	case '{':
+		for decoder.More() {
+			if _, err := decoder.Token(); err != nil {
+				return err
+			}
+			if err := skipJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		_, err := decoder.Token()
+		return err
+	case '[':
+		for decoder.More() {
+			if err := skipJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		_, err := decoder.Token()
+		return err
+	default:
+		return nil
+	}
+}
+
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r contextReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.reader.Read(p)
+}
+
+func (api *DataManagementAPI) processConfigImport(ctx context.Context, filePath, userID string, overwriteExisting bool) (int, string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return 0, "", fmt.Errorf("failed to open file: %w", err)
+	}
+	defer file.Close()
+
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return 0, "", fmt.Errorf("failed to inspect file: %w", err)
+	}
+	if fileInfo.Size() > maxImportFileSize {
+		return 0, "", errImportTooLarge
+	}
+
+	payload, totalRecords, validationLog, err := decodeConfigImportPayload(contextReader{ctx: ctx, reader: file})
 	if err != nil {
 		return 0, "", err
 	}
+	if err := ctx.Err(); err != nil {
+		return totalRecords, validationLog, err
+	}
 
-	configService := services.NewConfigurationService(api.dataService.DB)
+	configService := services.NewConfigurationService(api.dataService.DB.WithContext(ctx))
 	options := map[string]interface{}{
 		"overwrite_existing": overwriteExisting,
 		"import_configs":     true,
@@ -129,8 +369,73 @@ func (api *DataManagementAPI) processConfigImport(filePath, userID string, overw
 	if err := configService.ImportConfigurations(payload, userID, options); err != nil {
 		return totalRecords, validationLog, err
 	}
+	if err := ctx.Err(); err != nil {
+		return totalRecords, validationLog, err
+	}
 
 	return totalRecords, validationLog, nil
+}
+
+func parseImportUpload(c *gin.Context, maxFileSize int64) (*multipart.FileHeader, error) {
+	maxRequestSize := maxFileSize + (maxImportRequestSize - maxImportFileSize)
+	if c.Request.ContentLength > maxRequestSize {
+		return nil, errImportTooLarge
+	}
+
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxRequestSize)
+	if err := c.Request.ParseMultipartForm(importMultipartMemory); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			return nil, errImportTooLarge
+		}
+		return nil, err
+	}
+
+	file, err := c.FormFile("file")
+	if err != nil {
+		return nil, err
+	}
+	if file.Size > maxFileSize {
+		return nil, errImportTooLarge
+	}
+	return file, nil
+}
+
+func saveImportUpload(file *multipart.FileHeader, uploadDir, importType string, maxFileSize int64) (string, int64, error) {
+	source, err := file.Open()
+	if err != nil {
+		return "", 0, err
+	}
+	defer source.Close()
+
+	// L-12: 文件名携带 import_type 前缀,便于从导入记录还原原始文件类型
+	filePath := filepath.Join(uploadDir, importType+"_"+uuid.New().String()+".json")
+	destination, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return "", 0, err
+	}
+
+	saved := false
+	defer func() {
+		if !saved {
+			_ = os.Remove(filePath)
+		}
+	}()
+
+	written, copyErr := io.Copy(destination, io.LimitReader(source, maxFileSize+1))
+	closeErr := destination.Close()
+	if written > maxFileSize {
+		return "", written, errImportTooLarge
+	}
+	if copyErr != nil {
+		return "", written, copyErr
+	}
+	if closeErr != nil {
+		return "", written, closeErr
+	}
+
+	saved = true
+	return filePath, written, nil
 }
 
 // CreateBackupRequest 创建备份请求
@@ -176,7 +481,11 @@ func (api *DataManagementAPI) ExportData(c *gin.Context) {
 	// 执行导出
 	exportRecord, err := api.dataService.ExportData(req.ExportType, req.Format, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		status := http.StatusInternalServerError
+		if errors.Is(err, services.ErrDataJobCapacity) {
+			status = http.StatusServiceUnavailable
+		}
+		c.JSON(status, ErrorResponse{Error: err.Error()})
 		return
 	}
 
@@ -353,7 +662,11 @@ func (api *DataManagementAPI) CreateBackup(c *gin.Context) {
 	// 创建备份
 	backupRecord, err := api.dataService.CreateBackup(req.BackupType, req.Name, req.Description, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		status := http.StatusInternalServerError
+		if errors.Is(err, services.ErrDataJobCapacity) {
+			status = http.StatusServiceUnavailable
+		}
+		c.JSON(status, ErrorResponse{Error: err.Error()})
 		return
 	}
 
@@ -486,12 +799,24 @@ func (api *DataManagementAPI) DeleteBackupRecord(c *gin.Context) {
 // @Success 200 {object} models.DataImportRecord
 // @Failure 400 {object} ErrorResponse
 // @Failure 401 {object} ErrorResponse
+// @Failure 413 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
+// @Failure 503 {object} ErrorResponse
 // @Router /api/data-management/import [post]
 func (api *DataManagementAPI) ImportData(c *gin.Context) {
-	// 获取上传文件
-	file, err := c.FormFile("file")
+	defer func() {
+		if c.Request.MultipartForm != nil {
+			_ = c.Request.MultipartForm.RemoveAll()
+		}
+	}()
+
+	// 在解析 multipart 前限制整个请求体；随后再次校验单文件大小。
+	file, err := parseImportUpload(c, maxImportFileSize)
 	if err != nil {
+		if errors.Is(err, errImportTooLarge) {
+			c.JSON(http.StatusRequestEntityTooLarge, ErrorResponse{Error: errImportTooLarge.Error()})
+			return
+		}
 		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "No file uploaded"})
 		return
 	}
@@ -519,44 +844,41 @@ func (api *DataManagementAPI) ImportData(c *gin.Context) {
 
 	// 保存上传文件
 	uploadDir := "data/uploads"
-	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+	if err := os.MkdirAll(uploadDir, 0700); err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to create upload directory"})
 		return
 	}
 
-	filePath := filepath.Join(uploadDir, fmt.Sprintf("%d_%s", time.Now().UnixNano(), filepath.Base(file.Filename)))
-	if err := c.SaveUploadedFile(file, filePath); err != nil {
+	filePath, fileSize, err := saveImportUpload(file, uploadDir, importType, maxImportFileSize)
+	if err != nil {
+		if errors.Is(err, errImportTooLarge) {
+			c.JSON(http.StatusRequestEntityTooLarge, ErrorResponse{Error: errImportTooLarge.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to save uploaded file"})
 		return
 	}
 
-	importRecord, err := api.dataService.CreateImportRecord(importType, filePath, file.Size, userID)
+	importRecord, err := api.dataService.CreateImportRecord(importType, filePath, fileSize, userID)
 	if err != nil {
 		_ = os.Remove(filePath)
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		return
 	}
 
-	// 异步处理导入
-	go func() {
-		_ = api.dataService.UpdateImportStatus(importRecord, models.StatusRunning, 0, 0, 0, "", "")
-
-		defer func() {
-			if r := recover(); r != nil {
-				_ = api.dataService.UpdateImportStatus(importRecord, models.StatusFailed, 0, 0, 0, fmt.Sprintf("import failed: %v", r), "")
-			}
-		}()
-
-		totalRecords, validationLog, processErr := api.processConfigImport(filePath, userID, overwriteExisting)
-		if processErr != nil {
-			_ = api.dataService.UpdateImportStatus(importRecord, models.StatusFailed, totalRecords, 0, totalRecords, processErr.Error(), validationLog)
-			return
+	responseRecord := *importRecord
+	if err := api.dataService.StartImport(importRecord, func(ctx context.Context) (int, string, error) {
+		return api.processConfigImport(ctx, filePath, userID, overwriteExisting)
+	}); err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, services.ErrDataJobCapacity) {
+			status = http.StatusServiceUnavailable
 		}
+		c.JSON(status, ErrorResponse{Error: err.Error()})
+		return
+	}
 
-		_ = api.dataService.UpdateImportStatus(importRecord, models.StatusCompleted, totalRecords, totalRecords, 0, "", validationLog)
-	}()
-
-	c.JSON(http.StatusOK, importRecord)
+	c.JSON(http.StatusOK, &responseRecord)
 
 	if api.activityLogService != nil {
 		msg := fmt.Sprintf("Imported data: file=%s type=%s", file.Filename, importType)

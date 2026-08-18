@@ -26,6 +26,8 @@ export const useWebSocket = (options: UseWebSocketOptions = {}) => {
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimeoutRef = useRef<number>();
   const shouldReconnectRef = useRef(true);
+  // Tracks active subscriptions so they can be replayed after a reconnect.
+  const subscriptionsRef = useRef<Map<string, any>>(new Map());
   // Tracks live connection state so consumers re-render on connect/disconnect.
   const [isConnected, setIsConnected] = useState(false);
   
@@ -65,10 +67,24 @@ export const useWebSocket = (options: UseWebSocketOptions = {}) => {
     try {
       const ws = new WebSocket(wsUrl);
 
+      // Re-arm auto-reconnect whenever a fresh connection is created (e.g. a
+      // manual reconnect() call after disconnect()).
+      shouldReconnectRef.current = true;
+
       ws.onopen = () => {
         reconnectAttemptsRef.current = 0;
         setIsConnected(true);
         onConnectRef.current?.();
+
+        // Replay any subscriptions that were active before a reconnect so
+        // live log/status streams resume without the user having to re-enable them.
+        subscriptionsRef.current.forEach((message) => {
+          try {
+            ws.send(JSON.stringify(message));
+          } catch (sendError) {
+            console.error('Error replaying WebSocket subscription:', sendError);
+          }
+        });
       };
 
       ws.onmessage = (event) => {
@@ -124,6 +140,22 @@ export const useWebSocket = (options: UseWebSocketOptions = {}) => {
   }, []);
 
   const send = useCallback((message: any) => {
+    // Track active subscriptions regardless of connection state so the map
+    // stays accurate (e.g. an unsubscribe sent while the socket is briefly
+    // closed still removes the tracked subscription).
+    if (message && typeof message.type === 'string') {
+      const isSubscribe = message.type.startsWith('subscribe');
+      const isUnsubscribe = message.type.startsWith('unsubscribe');
+      if (isSubscribe || isUnsubscribe) {
+        const key = message.type + ':' + JSON.stringify(message.data || {});
+        if (isSubscribe) {
+          subscriptionsRef.current.set(key, message);
+        } else {
+          subscriptionsRef.current.delete(key);
+        }
+      }
+    }
+
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(message));
     } else {

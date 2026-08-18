@@ -206,8 +206,9 @@ const (
 	ExportStatusCancelled = "cancelled"
 
 	// 导出格式（特定于日志分析）
-	ExportFormatTXT = "txt"
-	ExportFormatXML = "xml"
+	ExportFormatTXT  = "txt"
+	ExportFormatXML  = "xml"
+	// ExportFormatJSON 复用 data_management.go 中的定义,避免重复声明
 )
 
 // GetSeverityLevel 根据日志级别获取严重程度数值
@@ -270,7 +271,7 @@ func IsValidPatternType(patternType string) bool {
 
 // IsValidExportFormat 检查导出格式是否有效
 func IsValidExportFormat(format string) bool {
-	validFormats := []string{ExportFormatTXT, ExportFormatXML}
+	validFormats := []string{ExportFormatTXT, ExportFormatXML, ExportFormatJSON}
 	for _, validFormat := range validFormats {
 		if format == validFormat {
 			return true

@@ -136,13 +136,13 @@ export const discoveryApi = {
 
   // List discovery tasks with pagination and optional status filter
   // GET /api/discovery/tasks
-  getTasks: (params?: ListTasksParams) =>
-    apiClient.get<ListTasksResponse>('/discovery/tasks', { params }),
+  getTasks: (params?: ListTasksParams, config?: { signal?: AbortSignal }) =>
+    apiClient.get<ListTasksResponse>('/discovery/tasks', { params, ...config }),
 
   // Get task details with results
   // GET /api/discovery/tasks/:id
-  getTask: (taskId: number) =>
-    apiClient.get<GetTaskResponse>(`/discovery/tasks/${taskId}`),
+  getTask: (taskId: number, config?: { signal?: AbortSignal }) =>
+    apiClient.get<GetTaskResponse>(`/discovery/tasks/${taskId}`, config),
 
   // Cancel a running discovery task
   // POST /api/discovery/tasks/:id/cancel

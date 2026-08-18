@@ -171,7 +171,11 @@ func (vm *ValidationMiddleware) SecurityHeaders() gin.HandlerFunc {
 		c.Header("X-Frame-Options", "DENY")
 		c.Header("X-XSS-Protection", "1; mode=block")
 		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
-		c.Header("Content-Security-Policy", "default-src 'self'")
+		// Ant Design (web/react-app) 通过 CSS-in-JS 在运行时动态注入内联样式,
+		// 且图标多使用 data:URI。因此 style-src 必须含 'unsafe-inline'(运行时生成的
+		// 样式哈希不可预测,无法用固定 hash 覆盖),img-src 需允许 data:。
+		// script-src 仍由 default-src 'self' 约束,保持严格。
+		c.Header("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'")
 		
 		c.Next()
 	}

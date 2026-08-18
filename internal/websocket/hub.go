@@ -3,6 +3,7 @@ package websocket
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -12,11 +13,14 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
+	"superview/internal/auth"
 	"superview/internal/config"
 	"superview/internal/logger"
+	"superview/internal/models"
 	"superview/internal/supervisor"
 )
 
@@ -32,6 +36,10 @@ type WebSocketConfig struct {
 	MaxMessageSize    int64         // 最大消息大小
 	MaxViolations     int           // 最大违规次数
 }
+
+// SessionValidator revalidates the database-backed identity associated with a
+// long-lived WebSocket connection. A non-nil error revokes the connection.
+type SessionValidator func(userID string, tokenVersion uint64) error
 
 // globalAllowedOrigins 全局配置的允许来源（从 config.toml 加载）
 var (
@@ -137,6 +145,10 @@ type Hub struct {
 
 	service *supervisor.SupervisorService
 	config  *WebSocketConfig
+	db      *gorm.DB // H-08: 用于节点名称解析
+
+	sessionValidator   SessionValidator
+	sessionValidatorMu sync.RWMutex
 
 	connectionCount int64 // atomic
 
@@ -160,13 +172,18 @@ type Client struct {
 	hub            *Hub
 	conn           *websocket.Conn
 	send           chan []byte
+	closeSendOnce  sync.Once // ensure send channel is closed only once
 	userID         string
+	tokenVersion   uint64
 	subscribed     sync.Map      // map[string]bool - thread-safe
 	limiter        *rate.Limiter // 速率限制器
 	lastPong       time.Time     // 最后一次pong时间
 	mu             sync.RWMutex
 	violationCount int  // 违规计数
 	closed         bool // 连接是否已关闭
+	// H-08: node ACL — 允许此客户端访问的节点 ID 集合。nil 表示无限制(超级管理员)。
+	allowedNodeIDs   map[string]bool // H-08: 允许访问的节点名集合; nil 表示无限制
+	allowedNodeIDsMu sync.RWMutex   // 保护 allowedNodeIDs 并发读写(L-13)
 }
 
 type Message struct {
@@ -211,6 +228,13 @@ func NewHub(service *supervisor.SupervisorService) *Hub {
 	return NewHubWithConfig(service, GetDefaultWebSocketConfig())
 }
 
+// NewHubWithDB 使用自定义配置和数据库句柄创建Hub(H-08 节点 ACL 名称解析需要)
+func NewHubWithDB(service *supervisor.SupervisorService, db *gorm.DB) *Hub {
+	hub := NewHub(service)
+	hub.db = db
+	return hub
+}
+
 // NewHubWithConfig 使用自定义配置创建Hub
 func NewHubWithConfig(service *supervisor.SupervisorService, config *WebSocketConfig) *Hub {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -223,6 +247,7 @@ func NewHubWithConfig(service *supervisor.SupervisorService, config *WebSocketCo
 		cleanup:         make(chan *Client, 100), // Buffered cleanup channel
 		service:         service,
 		config:          config,
+
 		ctx:             ctx,
 		cancel:          cancel,
 		refreshInterval: 5 * time.Second, // 默认 5 秒
@@ -292,6 +317,24 @@ func (h *Hub) GetConnectionCount() int64 {
 	return atomic.LoadInt64(&h.connectionCount)
 }
 
+// SetSessionValidator configures database-backed revalidation for WebSocket
+// sessions. It should normally be set before Run is started.
+func (h *Hub) SetSessionValidator(validator SessionValidator) {
+	h.sessionValidatorMu.Lock()
+	h.sessionValidator = validator
+	h.sessionValidatorMu.Unlock()
+}
+
+func (h *Hub) validateSession(userID string, tokenVersion uint64) error {
+	h.sessionValidatorMu.RLock()
+	validator := h.sessionValidator
+	h.sessionValidatorMu.RUnlock()
+	if validator == nil {
+		return nil
+	}
+	return validator(userID, tokenVersion)
+}
+
 func (h *Hub) Run() {
 	// Start background goroutines
 	h.refreshWg.Add(1)
@@ -332,7 +375,9 @@ func (h *Hub) Run() {
 			h.clientsMu.Lock()
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
-				close(client.send)
+				client.closeSendOnce.Do(func() {
+					close(client.send)
+				})
 				atomic.AddInt64(&h.connectionCount, -1)
 			}
 			h.clientsMu.Unlock()
@@ -346,11 +391,17 @@ func (h *Hub) Run() {
 			clientsToRemove := make([]*Client, 0)
 
 			for client := range h.clients {
+				// H-08: nodes_update 广播按客户端节点 ACL 过滤,避免无权客户端
+				// 通过实时通道枚举全部节点。
+				payload := message
+				if isNodesUpdateMessage(message) {
+					payload = h.filterNodesUpdateForClient(message, client)
+				}
 				select {
-				case client.send <- message:
+				case client.send <- payload:
 					// 发送成功
 				default:
-					// 客户端阻塞，收集待移除的客户端
+					// 客户端阻塞,收集待移除的客户端
 					clientsToRemove = append(clientsToRemove, client)
 				}
 			}
@@ -381,13 +432,20 @@ func (h *Hub) startCleanupWorker() {
 			return
 		case client := <-h.cleanup:
 			h.clientsMu.Lock()
-			if _, ok := h.clients[client]; ok {
-				close(client.send)
-				delete(h.clients, client)
-				atomic.AddInt64(&h.connectionCount, -1)
-				logger.Debug("Client cleaned up",
-					zap.String("user_id", client.userID))
+			client.mu.Lock()
+			if !client.closed {
+				if _, ok := h.clients[client]; ok {
+					client.closed = true
+					client.closeSendOnce.Do(func() {
+						close(client.send)
+					})
+					delete(h.clients, client)
+					atomic.AddInt64(&h.connectionCount, -1)
+					logger.Debug("Client cleaned up",
+						zap.String("user_id", client.userID))
+				}
 			}
+			client.mu.Unlock()
 			h.clientsMu.Unlock()
 		}
 	}
@@ -571,6 +629,10 @@ func (h *Hub) SendLogStreamToSubscribedClients(nodeName, processName string, log
 
 	for client := range h.clients {
 		if _, subscribed := client.subscribed.Load(subscriptionKey); subscribed {
+			// L-13: 即使已订阅,若节点 ACL 已被撤销,跳过发送
+			if !client.canAccessNode(nodeName) {
+				continue
+			}
 			select {
 			case client.send <- data:
 				sentCount++
@@ -621,40 +683,88 @@ func (h *Hub) startHeartbeatChecker() {
 // checkHeartbeats 检查所有客户端的心跳状态
 func (h *Hub) checkHeartbeats() {
 	h.clientsMu.RLock()
-	deadClients := make([]*Client, 0)
-	now := time.Now()
-	heartbeatTimeout := h.config.HeartbeatInterval * 3 // 更严格的超时时间
-
+	clients := make([]*Client, 0, len(h.clients))
 	for client := range h.clients {
-		client.mu.RLock()
-		// 检查客户端是否已关闭或超时
-		if client.closed || now.Sub(client.lastPong) > heartbeatTimeout {
-			if !client.closed {
-				deadClients = append(deadClients, client)
-			}
-		}
-		client.mu.RUnlock()
+		clients = append(clients, client)
 	}
 	h.clientsMu.RUnlock()
 
-	// 安全地断开超时的客户端
-	for _, client := range deadClients {
+	type clientFailure struct {
+		client *Client
+		reason string
+		err    error
+	}
+
+	failedClients := make([]clientFailure, 0)
+	now := time.Now()
+	heartbeatTimeout := h.config.HeartbeatInterval * 3 // 更严格的超时时间
+
+	for _, client := range clients {
+		client.mu.RLock()
+		closed := client.closed
+		lastPong := client.lastPong
+		client.mu.RUnlock()
+		if closed {
+			continue
+		}
+
+		if now.Sub(lastPong) > heartbeatTimeout {
+			failedClients = append(failedClients, clientFailure{
+				client: client,
+				reason: "heartbeat timeout",
+			})
+			continue
+		}
+
+		if err := h.validateSession(client.userID, client.tokenVersion); err != nil {
+			if errors.Is(err, auth.ErrSessionUnavailable) {
+				failedClients = append(failedClients, clientFailure{
+					client: client,
+					reason: "session revoked",
+					err:    err,
+				})
+			} else {
+				logger.Warn("Session validation transient error, skipping",
+					zap.String("user_id", client.userID),
+					zap.Error(err))
+			}
+		} else {
+			// L-13: 会话仍然有效,刷新节点 ACL 快照,确保撤销操作实时生效
+			client.refreshAllowedNodeIDs(h.db)
+		}
+	}
+
+	// 收集待断开客户端 (不持有 client.mu)
+	toUnregister := make([]*Client, 0, len(failedClients))
+	for _, failure := range failedClients {
+		client := failure.client
 		client.mu.Lock()
 		if !client.closed {
 			client.closed = true
-			logger.Warn("Client heartbeat timeout, disconnecting",
+			fields := []zap.Field{
 				zap.String("userID", client.userID),
-				zap.Duration("timeout", now.Sub(client.lastPong)))
+				zap.String("reason", failure.reason),
+				zap.Duration("since_last_pong", now.Sub(client.lastPong)),
+			}
+			if failure.err != nil {
+				fields = append(fields, zap.Error(failure.err))
+			}
+			logger.Warn("WebSocket client validation failed, disconnecting", fields...)
+			toUnregister = append(toUnregister, client)
+		}
+		client.mu.Unlock()
+	}
 
-			// 通过unregister channel安全地移除客户端
-			select {
-			case h.unregister <- client:
-			default:
-				// 如果channel满了，直接关闭连接
+	// 发送到 unregister 通道 (不持有任何锁)
+	for _, client := range toUnregister {
+		select {
+		case h.unregister <- client:
+		default:
+			// 如果channel满了,直接关闭连接
+			if client.conn != nil {
 				client.conn.Close()
 			}
 		}
-		client.mu.Unlock()
 	}
 
 	// 发送ping消息给所有活跃客户端
@@ -677,6 +787,17 @@ func (h *Hub) checkHeartbeats() {
 	}
 }
 
+// canAccessNode 检查客户端是否有权访问指定节点(H-08)。
+// allowedNodeIDs 为 nil(超级管理员)时允许访问所有节点。
+func (c *Client) canAccessNode(nodeName string) bool {
+	c.allowedNodeIDsMu.RLock()
+	defer c.allowedNodeIDsMu.RUnlock()
+	if c.allowedNodeIDs == nil {
+		return true
+	}
+	return c.allowedNodeIDs[nodeName]
+}
+
 func (h *Hub) sendInitialData(client *Client) {
 	// Check if client is still registered
 	h.clientsMu.RLock()
@@ -689,11 +810,14 @@ func (h *Hub) sendInitialData(client *Client) {
 		return
 	}
 
-	// Send current nodes data
+	// Send current nodes data (H-08: 按节点 ACL 过滤)
 	nodes := h.service.GetAllNodes()
-	nodesData := make([]map[string]interface{}, len(nodes))
-	for i, node := range nodes {
-		nodesData[i] = node.Serialize()
+	nodesData := make([]map[string]interface{}, 0, len(nodes))
+	for _, node := range nodes {
+		if !client.canAccessNode(node.Name) {
+			continue
+		}
+		nodesData = append(nodesData, node.Serialize())
 	}
 
 	message := Message{
@@ -709,15 +833,100 @@ func (h *Hub) sendInitialData(client *Client) {
 		return
 	}
 
-	// Try to send with timeout, but don't panic if channel is closed
-	select {
-	case client.send <- data:
-		// Successfully sent
-	case <-time.After(1 * time.Second):
-		// Timeout - client may have disconnected
-		logger.Warn("Failed to send initial data to client, timeout",
+	// Try to send with timeout, but don't panic if channel is closed(M-35)
+	if !trySend(client.send, data) {
+		// channel is full or closed — client may have disconnected
+		logger.Warn("Failed to send initial data to client, channel full or closed",
 			zap.String("user_id", client.userID))
 	}
+}
+
+// isNodesUpdateMessage 判断广播消息是否为 nodes_update 类型(H-08)。
+func isNodesUpdateMessage(message []byte) bool {
+	var probe struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(message, &probe); err != nil {
+		return false
+	}
+	return probe.Type == "nodes_update"
+}
+
+// filterNodesUpdateForClient 按客户端节点 ACL 过滤 nodes_update 广播(H-08)。
+// 返回过滤后的消息字节;若客户端无任何可见节点,返回包含空列表的消息。
+func (h *Hub) filterNodesUpdateForClient(message []byte, client *Client) []byte {
+	var msg Message
+	if err := json.Unmarshal(message, &msg); err != nil {
+		return message
+	}
+	nodesData, ok := msg.Data.([]interface{})
+	if !ok {
+		return message
+	}
+
+	filtered := make([]interface{}, 0, len(nodesData))
+	for _, item := range nodesData {
+		nodeMap, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		name, _ := nodeMap["name"].(string)
+		if name != "" && client.canAccessNode(name) {
+			filtered = append(filtered, item)
+		}
+	}
+	msg.Data = filtered
+	out, err := json.Marshal(msg)
+	if err != nil {
+		return message
+	}
+	return out
+}
+
+// trySend 安全地向客户端通道发送数据,捕获因通道关闭导致的 panic(H-13/M-35)。
+// 通道关闭后向其发送数据会 panic 而非阻塞,因此 select-default 不足以防御。
+func trySend(ch chan []byte, data []byte) (ok bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			ok = false
+		}
+	}()
+	select {
+	case ch <- data:
+		return true
+	default:
+		return false
+	}
+}
+
+// refreshAllowedNodeIDs 从数据库重载客户端的节点 ACL,确保撤销操作实时生效(L-13)。
+// 心跳校验时调用,在释放 client.mu 锁后安全更新。
+func (c *Client) refreshAllowedNodeIDs(db *gorm.DB) {
+	if db == nil {
+		return
+	}
+	var user models.User
+	if err := db.Preload("NodeAccess").First(&user, "id = ?", c.userID).Error; err != nil {
+		return
+	}
+	if user.IsSuperAdmin() {
+		c.allowedNodeIDsMu.Lock()
+		c.allowedNodeIDs = nil
+		c.allowedNodeIDsMu.Unlock()
+		return
+	}
+	newAllowed := make(map[string]bool, len(user.NodeAccess))
+	for _, access := range user.NodeAccess {
+		if access.CanRead {
+			var dbNode models.Node
+			if err := db.First(&dbNode, "id = ?", access.NodeID).Error; err == nil {
+				newAllowed[dbNode.Name] = true
+			}
+		}
+	}
+	c.allowedNodeIDsMu.Lock()
+	c.allowedNodeIDs = newAllowed
+	c.allowedNodeIDsMu.Unlock()
 }
 
 func (h *Hub) broadcastNodesUpdate() {
@@ -860,6 +1069,8 @@ func (h *Hub) HandleWebSocket(c *gin.Context) {
 	if userID == "" {
 		userID = "anonymous"
 	}
+	tokenVersion, _ := c.Get("token_version")
+	version, _ := tokenVersion.(uint64)
 
 	// 设置连接超时
 	conn.SetReadDeadline(time.Now().Add(h.config.ReadTimeout))
@@ -868,15 +1079,36 @@ func (h *Hub) HandleWebSocket(c *gin.Context) {
 	// 创建速率限制器
 	limiter := rate.NewLimiter(rate.Limit(h.config.RateLimit), h.config.RateBurst)
 
+	// H-08: 从鉴权中间件上下文加载用户及其节点 ACL,用于连接级节点过滤。
+	// user 由 cmd/main.go 的 /ws 路由通过 auth.AuthenticateToken 设置,
+	// 已包含 Roles.Permissions 与 NodeAccess(见 loadUserForSession)。
+	var allowedNodeIDs map[string]bool
+	if userObj, exists := c.Get("user"); exists {
+		if u, ok := userObj.(*models.User); ok {
+			if !u.IsSuperAdmin() && len(u.NodeAccess) > 0 && h.db != nil {
+				allowedNodeIDs = make(map[string]bool, len(u.NodeAccess))
+				for _, access := range u.NodeAccess {
+					// 通过 NodeID 查询对应的 DB 节点名,构建 name→true 映射
+					var dbNode models.Node
+					if err := h.db.First(&dbNode, "id = ?", access.NodeID).Error; err == nil {
+						allowedNodeIDs[dbNode.Name] = access.CanRead
+					}
+				}
+			}
+		}
+	}
+
 	client := &Client{
 		hub:            h,
 		conn:           conn,
 		send:           make(chan []byte, 256),
 		userID:         userID,
+		tokenVersion:   version,
 		limiter:        limiter,
 		lastPong:       time.Now(),
 		violationCount: 0,
 		closed:         false,
+		allowedNodeIDs: allowedNodeIDs,
 	}
 
 	// 设置pong处理器
@@ -888,7 +1120,24 @@ func (h *Hub) HandleWebSocket(c *gin.Context) {
 		return nil
 	})
 
-	client.hub.register <- client
+	// 注册前校验会话:慢速 DB 查询发生在这里,而不是阻塞 Run() 主循环。
+	if err := h.validateSession(client.userID, client.tokenVersion); err != nil {
+		logger.Warn("WebSocket session rejected during registration",
+			zap.String("user_id", client.userID),
+			zap.Error(err))
+		client.conn.Close()
+		return
+	}
+
+	// 非阻塞注册:若 Run() 主循环繁忙(register 无缓冲),立即拒绝连接而不是阻塞握手。
+	select {
+	case client.hub.register <- client:
+	default:
+		logger.Warn("WebSocket register channel full, rejecting new connection",
+			zap.String("user_id", client.userID))
+		client.conn.Close()
+		return
+	}
 
 	// Start goroutines for reading and writing
 	go client.writePump()

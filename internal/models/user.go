@@ -8,17 +8,18 @@ import (
 )
 
 type User struct {
-	ID        string         `gorm:"primaryKey;type:varchar(36)" json:"id" validate:"required,uuid4"`
-	Username  string         `gorm:"uniqueIndex:idx_username;size:50;not null" json:"username" validate:"required,min=3,max=50,alphanum"`
-	Password  string         `gorm:"size:120;not null" json:"-" validate:"required,min=8"`
-	Email     string         `gorm:"uniqueIndex:idx_email;size:100" json:"email" validate:"omitempty,email,max=100"`
-	FullName  string         `gorm:"size:100" json:"full_name" validate:"omitempty,max=100"`
-	IsActive  bool           `gorm:"default:true;not null;index:idx_active" json:"is_active"`
-	IsAdmin   bool           `gorm:"default:false;not null;index:idx_admin" json:"is_admin"` // 保持向后兼容
-	LastLogin *time.Time     `gorm:"index:idx_last_login" json:"last_login"`
-	CreatedAt time.Time      `gorm:"not null;index:idx_created_at" json:"created_at"`
-	UpdatedAt time.Time      `gorm:"not null" json:"updated_at"`
-	DeletedAt gorm.DeletedAt `gorm:"index:idx_user_deleted_at" json:"-"`
+	ID           string         `gorm:"primaryKey;type:varchar(36)" json:"id" validate:"required,uuid4"`
+	Username     string         `gorm:"uniqueIndex:idx_username;size:50;not null" json:"username" validate:"required,min=3,max=50,alphanum"`
+	Password     string         `gorm:"size:120;not null" json:"-" validate:"required,min=8"`
+	Email        string         `gorm:"uniqueIndex:idx_email;size:100" json:"email" validate:"omitempty,email,max=100"`
+	FullName     string         `gorm:"size:100" json:"full_name" validate:"omitempty,max=100"`
+	IsActive     bool           `gorm:"default:true;not null;index:idx_active" json:"is_active"`
+	IsAdmin      bool           `gorm:"default:false;not null;index:idx_admin" json:"is_admin"` // 保持向后兼容
+	TokenVersion uint64         `gorm:"default:0;not null" json:"-"`
+	LastLogin    *time.Time     `gorm:"index:idx_last_login" json:"last_login"`
+	CreatedAt    time.Time      `gorm:"not null;index:idx_created_at" json:"created_at"`
+	UpdatedAt    time.Time      `gorm:"not null" json:"updated_at"`
+	DeletedAt    gorm.DeletedAt `gorm:"index:idx_user_deleted_at" json:"-"`
 
 	// 关联关系
 	Roles      []Role       `gorm:"many2many:user_roles;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"roles,omitempty"`

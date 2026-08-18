@@ -1,6 +1,8 @@
 package services
 
 import (
+	"bytes"
+	"encoding/csv"
 	"errors"
 	"fmt"
 	"strconv"
@@ -103,6 +105,11 @@ func applyActivityLogFilters(query *gorm.DB, filters map[string]interface{}) (*g
 				return nil, err
 			}
 			query = query.Where("created_at <= ?", parsed)
+		case "search":
+			if str, ok := value.(string); ok && str != "" {
+				query = query.Where("message LIKE ? OR username LIKE ? OR action LIKE ? OR resource LIKE ? OR target LIKE ?",
+					"%"+str+"%", "%"+str+"%", "%"+str+"%", "%"+str+"%", "%"+str+"%")
+			}
 		}
 	}
 
@@ -391,8 +398,16 @@ func (s *ActivityLogService) ExportLogs(filters map[string]interface{}) ([]byte,
 		return nil, err
 	}
 
-	// 生成 CSV 内容
-	csv := "ID,Created At,Level,Username,Action,Resource,Target,Message,IP Address,Status,Duration\n"
+	// 使用 encoding/csv 生成 CSV 内容,自动处理字段转义
+	// (消息、目标等字段可能包含逗号、引号或换行,手动字符串拼接会产生非法 CSV)
+	var buf bytes.Buffer
+	writer := csv.NewWriter(&buf)
+
+	// 写入表头
+	header := []string{"ID", "Created At", "Level", "Username", "Action", "Resource", "Target", "Message", "IP Address", "Status", "Duration"}
+	if err := writer.Write(header); err != nil {
+		return nil, err
+	}
 
 	for _, log := range logs {
 		username := log.Username
@@ -400,8 +415,8 @@ func (s *ActivityLogService) ExportLogs(filters map[string]interface{}) ([]byte,
 			username = "system"
 		}
 
-		csv += fmt.Sprintf("%d,%s,%s,%s,%s,%s,%s,\"%s\",%s,%s,%d\n",
-			log.ID,
+		record := []string{
+			strconv.FormatUint(uint64(log.ID), 10),
 			log.CreatedAt.Format("2006-01-02 15:04:05"),
 			log.Level,
 			username,
@@ -411,11 +426,19 @@ func (s *ActivityLogService) ExportLogs(filters map[string]interface{}) ([]byte,
 			log.Message,
 			log.IPAddress,
 			log.Status,
-			log.Duration,
-		)
+			strconv.FormatInt(log.Duration, 10),
+		}
+		if err := writer.Write(record); err != nil {
+			return nil, err
+		}
 	}
 
-	return []byte(csv), nil
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
 }
 
 // LogSystemEvent 记录系统事件（无用户操作）

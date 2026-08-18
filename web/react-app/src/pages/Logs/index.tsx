@@ -74,6 +74,7 @@ const Logs: React.FC = () => {
     if (actionFilter) filters.action = actionFilter;
     if (resourceFilter) filters.resource = resourceFilter;
     if (usernameFilter) filters.username = usernameFilter;
+    if (searchText) filters.search = searchText;
     
     if (dateRange && dateRange[0] && dateRange[1]) {
       filters.start_time = dateRange[0].toISOString();

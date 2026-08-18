@@ -22,19 +22,26 @@ func getJWTSecret() ([]byte, error) {
 }
 
 type Claims struct {
-	UserID string `json:"user_id"`
+	UserID       string `json:"user_id"`
+	TokenVersion uint64 `json:"token_version"`
 	jwt.RegisteredClaims
 }
 
 // GenerateToken 生成JWT令牌
-func GenerateToken(userID string) (string, error) {
+func GenerateToken(userID string, tokenVersions ...uint64) (string, error) {
 	secret, err := getJWTSecret()
 	if err != nil {
 		return "", fmt.Errorf("failed to get JWT secret: %w", err)
 	}
 
+	var tokenVersion uint64
+	if len(tokenVersions) > 0 {
+		tokenVersion = tokenVersions[0]
+	}
+
 	claims := Claims{
-		UserID: userID,
+		UserID:       userID,
+		TokenVersion: tokenVersion,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			Issuer:    "cesi",
@@ -52,6 +59,9 @@ func ParseToken(tokenString string) (*Claims, error) {
 		// 验证签名方法
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, jwt.ErrSignatureInvalid
+		}
+		if token.Method.Alg() != "HS256" {
+			return nil, fmt.Errorf("unexpected signing method: %s", token.Method.Alg())
 		}
 		secret, err := getJWTSecret()
 		if err != nil {

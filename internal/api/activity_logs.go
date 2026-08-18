@@ -44,6 +44,7 @@ func (a *ActivityLogsAPI) GetActivityLogs(c *gin.Context) {
 		"action":     c.Query("action"),
 		"resource":   c.Query("resource"),
 		"username":   c.Query("username"),
+		"search":     c.Query("search"),
 		"start_time": c.Query("start_time"),
 		"end_time":   c.Query("end_time"),
 	}
@@ -229,6 +230,7 @@ func (a *ActivityLogsAPI) DeleteLogs(c *gin.Context) {
 		"action":     c.Query("action"),
 		"resource":   c.Query("resource"),
 		"username":   c.Query("username"),
+		"search":     c.Query("search"),
 		"start_time": c.Query("start_time"),
 		"end_time":   c.Query("end_time"),
 	}
@@ -283,6 +285,7 @@ func (a *ActivityLogsAPI) ExportLogs(c *gin.Context) {
 		"action":     c.Query("action"),
 		"resource":   c.Query("resource"),
 		"username":   c.Query("username"),
+		"search":     c.Query("search"),
 		"start_time": c.Query("start_time"),
 		"end_time":   c.Query("end_time"),
 	}

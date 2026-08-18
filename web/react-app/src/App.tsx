@@ -31,6 +31,22 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// Admin-only Route Component
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, user } = useStore();
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (!user?.is_admin) {
+    // Non-admin users are redirected to the dashboard
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return <>{children}</>;
+}
+
 function RouteFallback() {
   return (
     <div style={{ minHeight: '50vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -129,11 +145,11 @@ function App() {
           <Route path="processes" element={<ProcessesPage />} />
           <Route path="environments" element={<EnvironmentList />} />
           <Route path="environments/:environmentName" element={<EnvironmentDetail />} />
-          <Route path="users" element={<UserList />} />
+          <Route path="users" element={<AdminRoute><UserList /></AdminRoute>} />
           <Route path="logs" element={<LogList />} />
           <Route path="discovery" element={<DiscoveryPage />} />
           <Route path="profile" element={<ProfilePage />} />
-          <Route path="settings" element={<Settings />} />
+          <Route path="settings" element={<AdminRoute><Settings /></AdminRoute>} />
         </Route>
         
         {/* 未匹配的路由：已登录去 dashboard，未登录去 login */}

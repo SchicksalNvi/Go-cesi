@@ -2,6 +2,7 @@ package api
 
 import (
 	"superview/internal/auth"
+	"superview/internal/config"
 	"superview/internal/middleware"
 	"superview/internal/models"
 	"superview/internal/repository"
@@ -19,6 +20,12 @@ type WebSocketHub interface {
 }
 
 func SetupRoutes(r *gin.Engine, db *gorm.DB, service *supervisor.SupervisorService, hub WebSocketHub) {
+	SetupRoutesWithConfig(r, db, service, hub, nil)
+}
+
+// SetupRoutesWithConfig 设置路由,并允许传入开发者工具配置。
+// developerToolsConfig 为 nil 时开发者工具默认启用(向后兼容)。
+func SetupRoutesWithConfig(r *gin.Engine, db *gorm.DB, service *supervisor.SupervisorService, hub WebSocketHub, developerToolsConfig *config.DeveloperToolsConfig) {
 	// 添加性能监控中间件
 	r.Use(middleware.PerformanceMiddleware())
 
@@ -387,8 +394,9 @@ func SetupRoutes(r *gin.Engine, db *gorm.DB, service *supervisor.SupervisorServi
 		}
 
 		// Developer Tools API
-		developerToolsHandler := NewDeveloperToolsAPI(db, service, nil, hub)
+		developerToolsHandler := NewDeveloperToolsAPI(db, service, developerToolsConfig, hub)
 		developerGroup := apiGroup.Group("/developer", permissionChecker.RequirePermission(models.PermissionSystemManage))
+		developerGroup.Use(developerToolsHandler.RequireEnabled())
 		{
 			// API 文档
 			developerGroup.GET("/api-docs", developerToolsHandler.GetApiEndpoints)

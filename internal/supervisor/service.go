@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -117,7 +118,7 @@ func (s *SupervisorService) monitorStates() {
 		s.checkNodeConnectionState(node)
 
 		// 检查进程状态
-		if node.IsConnected {
+		if connected, _ := node.GetConnectionStatus(); connected {
 			s.checkProcessStates(node)
 		}
 	}
@@ -166,7 +167,13 @@ func (s *SupervisorService) checkProcessStates(node *Node) {
 		s.processStates[node.Name] = make(map[string]int)
 	}
 
-	for _, process := range node.Processes {
+	// 在锁内读取进程列表副本,避免与 RefreshProcesses 写入产生竞态
+	node.mu.RLock()
+	processes := make([]Process, len(node.Processes))
+	copy(processes, node.Processes)
+	node.mu.RUnlock()
+
+	for _, process := range processes {
 		processKey := process.Name
 		previousState, exists := s.processStates[node.Name][processKey]
 		currentState := process.State
@@ -267,12 +274,11 @@ func (s *SupervisorService) AddNode(name, environment, host string, port int, us
 		logger.Warn("Failed to connect to node",
 			zap.String("name", name),
 			zap.Error(err))
-		node.IsConnected = false
+		node.SetConnected(false)
 	} else {
 		logger.Info("Successfully connected to node",
 			zap.String("name", name))
-		node.IsConnected = true
-		node.LastPing = time.Now()
+		node.SetConnectionStatus(true, time.Now())
 		
 		// 连接成功后立即刷新进程列表
 		if err := node.RefreshProcesses(); err != nil {
@@ -283,9 +289,10 @@ func (s *SupervisorService) AddNode(name, environment, host string, port int, us
 	}
 
 	s.nodes[name] = node
+	connected, _ := node.GetConnectionStatus()
 	logger.Info("Node added to service",
 		zap.String("name", name),
-		zap.Bool("connected", node.IsConnected))
+		zap.Bool("connected", connected))
 	return nil
 }
 
@@ -356,10 +363,7 @@ func (s *SupervisorService) GetAllNodes() []*Node {
 }
 
 func (s *SupervisorService) checkNodeStatus(node *Node) bool {
-	if err := node.Connect(); err != nil {
-		return false
-	}
-	return node.IsConnected
+	return node.Connect() == nil
 }
 
 func (s *SupervisorService) GetNodeProcesses(nodeName string) ([]Process, error) {
@@ -432,6 +436,7 @@ func (s *SupervisorService) StartAllProcesses(nodeName string) error {
 	
 	// 创建批量操作
 	var operations []BatchOperation
+	node.mu.RLock()
 	for _, process := range node.Processes {
 		processName := process.Name // 捕获循环变量
 		operations = append(operations, BatchOperation{
@@ -441,6 +446,7 @@ func (s *SupervisorService) StartAllProcesses(nodeName string) error {
 			},
 		})
 	}
+	node.mu.RUnlock()
 	
 	// 执行批量操作
 	ctx := context.Background()
@@ -478,6 +484,7 @@ func (s *SupervisorService) StopAllProcesses(nodeName string) error {
 	
 	// 创建批量操作
 	var operations []BatchOperation
+	node.mu.RLock()
 	for _, process := range node.Processes {
 		processName := process.Name // 捕获循环变量
 		operations = append(operations, BatchOperation{
@@ -487,6 +494,7 @@ func (s *SupervisorService) StopAllProcesses(nodeName string) error {
 			},
 		})
 	}
+	node.mu.RUnlock()
 	
 	// 执行批量操作
 	ctx := context.Background()
@@ -522,13 +530,22 @@ func (s *SupervisorService) RestartAllProcesses(nodeName string) error {
 		return err
 	}
 	
-	for _, process := range node.Processes {
+	var errs []string
+	node.mu.RLock()
+	processes := make([]Process, len(node.Processes))
+	copy(processes, node.Processes)
+	node.mu.RUnlock()
+
+	for _, process := range processes {
 		if err := node.RestartProcess(process.Name); err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", process.Name, err))
 			logger.Error("Failed to restart process",
-				zap.String("process_name", process.Name),
-				zap.String("node_name", nodeName),
+				zap.String("process", process.Name),
 				zap.Error(err))
 		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("failed to restart %d processes: %s", len(errs), strings.Join(errs, "; "))
 	}
 	return nil
 }
@@ -603,18 +620,22 @@ func (s *SupervisorService) GetEnvironmentDetails(environmentName string) map[st
 
 // GetGroups 获取所有进程分组
 func (s *SupervisorService) GetGroups() []map[string]interface{} {
+	// 收集已连接的节点列表,避免在持有锁时进行网络操作
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	
-	groupMap := make(map[string]map[string][]map[string]interface{})
-	
-	// 按分组和环境组织进程
+	var nodes []*Node
 	for _, node := range s.nodes {
 		isConnected, _ := node.GetConnectionStatus()
 		if !isConnected {
 			continue
 		}
-		
+		nodes = append(nodes, node)
+	}
+	s.mu.RUnlock()
+
+	groupMap := make(map[string]map[string][]map[string]interface{})
+
+	// 在锁外刷新进程信息并组织分组
+	for _, node := range nodes {
 		// 刷新进程信息
 		node.RefreshProcesses()
 		
@@ -717,19 +738,22 @@ func (s *SupervisorService) RestartGroupProcesses(groupName, environmentName str
 
 // operateGroupProcesses 对分组中的进程执行操作
 func (s *SupervisorService) operateGroupProcesses(groupName, environmentName, operation string) error {
+	// 收集符合条件的节点列表,避免在持有锁时进行网络操作
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	
+	var nodes []*Node
 	for _, node := range s.nodes {
 		if environmentName != "" && node.Environment != environmentName {
 			continue
 		}
-		
 		isConnected, _ := node.GetConnectionStatus()
 		if !isConnected {
 			continue
 		}
-		
+		nodes = append(nodes, node)
+	}
+	s.mu.RUnlock()
+	
+	for _, node := range nodes {
 		node.RefreshProcesses()
 		
 		// 获取进程列表的副本
@@ -781,16 +805,14 @@ func (s *SupervisorService) StartAutoRefresh(interval time.Duration) chan struct
 				
 				// 在锁外进行网络操作
 				for _, node := range nodes {
-					prevConnected := node.IsConnected
+					prevConnected, _ := node.GetConnectionStatus()
 					if err := node.Connect(); err == nil {
-						node.IsConnected = true
-						node.LastPing = time.Now()
+						// Connect() 内部已在节点锁内设置 IsConnected 和 LastPing
 						if !prevConnected {
 							logger.Info("Node reconnected",
 								zap.String("node_name", node.Name))
 						}
 					} else {
-						node.IsConnected = false
 						if prevConnected {
 							logger.Warn("Node disconnected",
 								zap.String("node_name", node.Name),
@@ -891,10 +913,7 @@ func (s *SupervisorService) Start(ctx context.Context) error {
 			logger.Warn("Failed to connect to node during startup",
 				zap.String("node_name", node.Name),
 				zap.Error(err))
-			node.IsConnected = false
 		} else {
-			node.IsConnected = true
-			node.LastPing = time.Now()
 			logger.Info("Node connected successfully",
 				zap.String("node_name", node.Name))
 		}

@@ -1,8 +1,8 @@
 package repository
 
 import (
-	"superview/internal/models"
 	"gorm.io/gorm"
+	"superview/internal/models"
 )
 
 // UserRepository 用户数据访问接口
@@ -12,6 +12,9 @@ type UserRepository interface {
 	GetByUsername(username string) (*models.User, error)
 	GetByEmail(email string) (*models.User, error)
 	Update(user *models.User) error
+	UpdateFields(id string, values map[string]interface{}) error
+	UpdateFieldsWithVersion(id string, values map[string]interface{}, tokenVersion uint64) error
+	UpdateFieldsAndRevokeSessions(id string, values map[string]interface{}) error
 	Delete(id string) error
 	List(offset, limit int) ([]*models.User, int64, error)
 	ExistsByUsername(username string) (bool, error)
@@ -39,7 +42,7 @@ type AlertRepository interface {
 	DeleteRule(id uint) error
 	ListRules(offset, limit int) ([]*models.AlertRule, int64, error)
 	GetActiveRules() ([]*models.AlertRule, error)
-	
+
 	CreateAlert(alert *models.Alert) error
 	GetAlertByID(id uint) (*models.Alert, error)
 	UpdateAlert(alert *models.Alert) error

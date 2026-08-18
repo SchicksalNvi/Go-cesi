@@ -15,6 +15,7 @@ import (
 
 	"superview/internal/config"
 	"superview/internal/database"
+	"superview/internal/logger"
 	"superview/internal/middleware"
 	"superview/internal/supervisor"
 	"superview/internal/utils"
@@ -72,6 +73,22 @@ func NewDeveloperToolsAPI(db *gorm.DB, service *supervisor.SupervisorService, cf
 		config:    cfg,
 		logReader: logReader,
 		hub:       hub,
+	}
+}
+
+// RequireEnabled 中间件:当 developer_tools.enabled 为 false 时,
+// 所有开发者工具路由返回 404,避免暴露未启用(且可能不安全)的功能。
+func (api *DeveloperToolsAPI) RequireEnabled() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if api.config == nil || !api.config.Enabled {
+			c.JSON(http.StatusNotFound, gin.H{
+				"status":  "error",
+				"message": "Developer tools are disabled",
+			})
+			c.Abort()
+			return
+		}
+		c.Next()
 	}
 }
 
@@ -413,18 +430,29 @@ func (api *DeveloperToolsAPI) ClearDebugLogs(c *gin.Context) {
 // SetLogLevel sets the logging level
 func (api *DeveloperToolsAPI) SetLogLevel(c *gin.Context) {
 	var request struct {
-		Level string `json:"level" binding:"required"`
+		Level  string `json:"level" binding:"required"`
+		Reason string `json:"reason"`
 	}
-
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// In a real implementation, this would set the actual log level
+	// 调用真实的日志级别设置(动态调整 zap 的 AtomicLevel)
+	changedBy := logLevelChangedBy(c)
+	if err := logger.SetLogLevel(request.Level, changedBy, request.Reason); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Failed to set log level",
+			"details": err.Error(),
+		})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Log level updated successfully",
 		"level":   request.Level,
+		"success": true,
 	})
 }
 

@@ -100,7 +100,7 @@ export default function Login() {
           </Form>
 
           <div style={{ textAlign: 'center', color: '#999', fontSize: 12 }}>
-            Default: admin / 123456
+            {t.login.defaultCredentialsHint || 'Please contact your administrator for access.'}
           </div>
         </Space>
       </Card>

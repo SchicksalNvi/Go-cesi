@@ -61,8 +61,9 @@ func (c *Client) Call(method string, args []interface{}) (interface{}, error) {
 	}
 	defer resp.Body.Close()
 
-	// 读取响应内容
-	body, err := io.ReadAll(resp.Body)
+	// 读取响应内容(使用限制读取器,防止恶意/异常节点返回超大响应导致内存膨胀)
+	limitedBody := io.LimitReader(resp.Body, 10*1024*1024) // 限制最大 10MB
+	body, err := io.ReadAll(limitedBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %v", err)
 	}

@@ -132,6 +132,7 @@ export interface ActivityLogsFilters {
   action?: string;
   resource?: string;
   username?: string;
+  search?: string;
   start_time?: string;
   end_time?: string;
   page?: number;

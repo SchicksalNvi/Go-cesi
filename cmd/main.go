@@ -138,7 +138,7 @@ func determineConfigPaths() (mainPath, nodeListPath string) {
 	// 优先使用 config/ 目录，如果不存在则回退到根目录
 	mainPath = "config/config.toml"
 	nodeListPath = "config/nodelist.toml"
-	
+
 	// 检查 config/ 目录是否存在
 	if _, err := os.Stat("config"); os.IsNotExist(err) {
 		// 回退到根目录的 config.toml（向后兼容）
@@ -148,7 +148,7 @@ func determineConfigPaths() (mainPath, nodeListPath string) {
 	} else {
 		logger.Info("Using config/ directory structure")
 	}
-	
+
 	return mainPath, nodeListPath
 }
 
@@ -157,7 +157,7 @@ func main() {
 	envPaths := []string{"config/.env", ".env"}
 	var envLoaded bool
 	var lastErr error
-	
+
 	for _, envPath := range envPaths {
 		if err := godotenv.Load(envPath); err == nil {
 			envLoaded = true
@@ -166,7 +166,7 @@ func main() {
 			lastErr = err
 		}
 	}
-	
+
 	if !envLoaded {
 		// .env文件不存在或加载失败时，继续执行（可能使用系统环境变量）
 		fmt.Printf("Warning: .env file not found or failed to load: %v\n", lastErr)
@@ -190,7 +190,7 @@ func main() {
 
 	// 加载应用配置
 	mainConfigPath, nodeListPath := determineConfigPaths()
-	
+
 	// 使用 ConfigLoader 加载配置
 	loader := config.NewConfigLoader(mainConfigPath, nodeListPath)
 	appConfig, err := loader.LoadWithDefaults()
@@ -198,6 +198,12 @@ func main() {
 		logger.Fatal("Failed to load application config", zap.Error(err))
 	}
 	logger.Info("Application config loaded successfully")
+
+	// 验证应用配置,失败时快速退出,避免带着无效配置启动服务
+	if err := config.NewValidator().Validate(appConfig); err != nil {
+		logger.Fatal("Application config validation failed", zap.Error(err))
+	}
+	logger.Info("Application config validation passed")
 
 	if len(os.Args) > 1 && os.Args[1] == "create-admin" {
 		if len(os.Args) < 6 {
@@ -208,14 +214,25 @@ func main() {
 		for i := 2; i < len(os.Args); i++ {
 			switch os.Args[i] {
 			case "--username":
+				if i+1 >= len(os.Args) { // L-06: 越界防护
+					logger.Fatal("Missing value for --username")
+				}
 				username = os.Args[i+1]
 				i++
 			case "--password":
+				if i+1 >= len(os.Args) { // L-06: 越界防护
+					logger.Fatal("Missing value for --password")
+				}
 				password = os.Args[i+1]
 				i++
 			case "--email":
+				if i+1 >= len(os.Args) { // L-06: 越界防护
+					logger.Fatal("Missing value for --email")
+				}
 				email = os.Args[i+1]
 				i++
+			default:
+				logger.Fatal("Unknown argument: " + os.Args[i])
 			}
 		}
 		if username == "" || password == "" || email == "" {
@@ -269,9 +286,35 @@ func main() {
 
 	// 初始化Supervisor服务
 	supervisorService := supervisor.NewSupervisorService()
-	
+
 	// 设置活动日志记录器到 supervisor
 	supervisorService.SetActivityLogger(activityLogService)
+
+	// 初始化系统角色和权限(幂等,已存在则跳过)
+	roleService := services.NewRoleService(db)
+	if err := roleService.InitializeSystemRoles(); err != nil {
+		logger.Fatal("Failed to initialize system roles", zap.Error(err))
+	}
+	logger.Info("System roles initialized")
+
+	permissionService := services.NewPermissionService(db)
+	if err := permissionService.InitializeSystemPermissions(); err != nil {
+		logger.Fatal("Failed to initialize system permissions", zap.Error(err))
+	}
+	logger.Info("System permissions initialized")
+
+	// 为系统角色分配默认权限(超级管理员拥有全部权限)
+	for _, roleName := range []string{
+		models.RoleSuperAdmin,
+		models.RoleEnvironmentAdmin,
+		models.RoleNodeOperator,
+		models.RoleReadOnlyUser,
+	} {
+		if err := permissionService.AssignDefaultPermissionsToRole(roleName); err != nil {
+			logger.Warn("Failed to assign default permissions to role",
+				zap.String("role", roleName), zap.Error(err))
+		}
+	}
 
 	// 设置 WebSocket AllowedOrigins（从配置文件加载）
 	if len(appConfig.WebSocket.AllowedOrigins) > 0 {
@@ -281,7 +324,10 @@ func main() {
 	}
 
 	// 初始化WebSocket Hub
-	hub := websocket.NewHub(supervisorService)
+	hub := websocket.NewHubWithDB(supervisorService, db)
+	hub.SetSessionValidator(func(userID string, tokenVersion uint64) error {
+		return auth.ValidateUserSession(db, userID, tokenVersion)
+	})
 	go hub.Run()
 
 	// 初始化Alert服务和监控
@@ -356,18 +402,23 @@ func main() {
 	refreshInterval := getRefreshIntervalFromSettings(db)
 	stopRefresh := supervisorService.StartAutoRefresh(refreshInterval)
 	stopMonitoring := supervisorService.StartMonitoring(refreshInterval)
-	
+
 	// 设置 WebSocket Hub 的刷新间隔
 	processRefreshInterval := getProcessRefreshIntervalFromSettings(db)
 	hub.SetRefreshInterval(processRefreshInterval)
-	
+
 	logger.Info("Supervisor auto-refresh and state monitoring started",
 		zap.Duration("interval", refreshInterval))
 	logger.Info("WebSocket process refresh started",
 		zap.Duration("interval", processRefreshInterval))
-	
+
 	// 启动配置监听器，当刷新间隔改变时重启自动刷新和监控
-	go watchRefreshIntervalChanges(db, supervisorService, hub, &stopRefresh, &stopMonitoring)
+	watchCtx, watchCancel := context.WithCancel(context.Background())
+	watchDone := make(chan struct{})
+	go func() {
+		defer close(watchDone)
+		watchRefreshIntervalChanges(watchCtx, db, supervisorService, hub, &stopRefresh, &stopMonitoring)
+	}()
 
 	// 设置Gin路由
 	router := gin.Default()
@@ -386,6 +437,12 @@ func main() {
 	corsConfig.AllowCredentials = true
 	router.Use(cors.New(corsConfig))
 
+	// 安全头中间件:设置 X-Content-Type-Options、X-Frame-Options 等安全响应头
+	router.Use(middleware.NewValidationMiddleware().SecurityHeaders())
+
+	// 统一错误处理中间件:捕获 panic 并转换为标准错误响应
+	router.Use(middleware.ErrorHandler())
+
 	// 获取当前工作目录作为项目根目录
 	projectRoot, err := os.Getwd()
 	if err != nil {
@@ -393,7 +450,7 @@ func main() {
 	}
 
 	// 设置API路由
-	api.SetupRoutes(router, db, supervisorService, hub)
+	api.SetupRoutesWithConfig(router, db, supervisorService, hub, &appConfig.DeveloperTools)
 
 	// 设置 Prometheus metrics 端点
 	if appConfig.Metrics.Enabled {
@@ -402,13 +459,13 @@ func main() {
 		if metricsPath == "" {
 			metricsPath = "/metrics"
 		}
-		
+
 		handler := promMetrics.Handler()
 		if appConfig.Metrics.Username != "" || appConfig.Metrics.Password != "" {
 			authMiddleware := metrics.NewBasicAuthMiddleware(appConfig.Metrics.Username, appConfig.Metrics.Password)
 			handler = authMiddleware.Wrap(handler)
 		}
-		
+
 		router.GET(metricsPath, gin.WrapF(handler))
 		logger.Info("Prometheus metrics endpoint enabled",
 			zap.String("path", metricsPath),
@@ -441,20 +498,23 @@ func main() {
 			return
 		}
 
-		// Validate token
-		claims, err := auth.ParseToken(token)
+		// Validate the token against the current database-backed user session.
+		user, claims, err := auth.AuthenticateToken(db, token)
 		if err != nil {
-			logger.Warn("WebSocket authentication failed: invalid token",
+			logger.Warn("WebSocket authentication failed: invalid or revoked session",
 				zap.String("remote_addr", c.ClientIP()),
 				zap.Error(err))
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication failed: invalid token"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication failed: invalid or revoked session"})
 			return
 		}
 
 		// Set user context
-		c.Set("user_id", claims.UserID)
+		c.Set("user_id", user.ID)
+		c.Set("userID", user.ID)
+		c.Set("user", user)
+		c.Set("token_version", claims.TokenVersion)
 		logger.Debug("WebSocket authentication successful",
-			zap.String("user_id", claims.UserID),
+			zap.String("user_id", user.ID),
 			zap.String("remote_addr", c.ClientIP()))
 
 		// Upgrade to WebSocket
@@ -562,6 +622,19 @@ func main() {
 	alertMonitor.Stop()
 	logger.Info("Alert Monitor stopped")
 
+	// 关闭遗留日志子系统(L-05: 释放文件句柄)
+	if loggers.GetActivityLogService() != nil {
+		if err := loggers.GetActivityLogService().Close(); err != nil {
+			logger.Warn("Failed to close legacy activity log service", zap.Error(err))
+		}
+		logger.Info("Legacy activity log service closed")
+	}
+
+	// 停止配置监听器
+	watchCancel()
+	<-watchDone
+	logger.Info("Refresh interval watcher stopped")
+
 	// 停止自动刷新和监控
 	supervisorService.StopAutoRefresh(stopRefresh)
 	supervisorService.StopMonitoring(stopMonitoring)
@@ -586,7 +659,7 @@ func main() {
 
 func loadConfig() (*Config, error) {
 	mainConfigPath, nodeListPath := determineConfigPaths()
-	
+
 	// 检查是否有节点配置，如果有则提供迁移建议
 	if nodeListPath == "" {
 		viper.SetConfigFile(mainConfigPath)
@@ -603,7 +676,7 @@ func loadConfig() (*Config, error) {
 			}
 		}
 	}
-	
+
 	// 使用 ConfigLoader 加载配置
 	loader := config.NewConfigLoader(mainConfigPath, nodeListPath)
 	appCfg, err := loader.LoadWithDefaults()
@@ -614,7 +687,7 @@ func loadConfig() (*Config, error) {
 	// 转换为 main.go 的 Config 结构
 	var cfg Config
 	cfg.Server.Port = 8081 // 默认端口
-	
+
 	// 从 viper 读取服务器端口（如果存在）
 	viper.SetConfigFile(mainConfigPath)
 	if err := viper.ReadInConfig(); err == nil {
@@ -623,14 +696,14 @@ func loadConfig() (*Config, error) {
 			cfg.Server.Port = 8081
 		}
 	}
-	
+
 	cfg.Admin.Username = appCfg.AdminUsername
 	cfg.Admin.Password = appCfg.AdminPassword
 	cfg.Admin.Email = appCfg.Admin.Email
 	if cfg.Admin.Email == "" {
 		cfg.Admin.Email = "admin@example.com"
 	}
-	
+
 	// 转换节点配置
 	cfg.Nodes = make([]struct {
 		Name        string `mapstructure:"name"`
@@ -640,7 +713,7 @@ func loadConfig() (*Config, error) {
 		Username    string `mapstructure:"username"`
 		Password    string `mapstructure:"password"`
 	}, len(appCfg.Nodes))
-	
+
 	for i, node := range appCfg.Nodes {
 		cfg.Nodes[i].Name = node.Name
 		cfg.Nodes[i].Environment = node.Environment
@@ -661,18 +734,18 @@ func loadConfig() (*Config, error) {
 func getRefreshIntervalFromSettings(db *gorm.DB) time.Duration {
 	var setting models.SystemSettings
 	result := db.Where("key = ?", "refresh_interval").First(&setting)
-	
+
 	if result.Error != nil || setting.Value == "" {
 		// 默认 30 秒
 		return 30 * time.Second
 	}
-	
+
 	// 解析间隔值（秒）
 	interval, err := strconv.Atoi(setting.Value)
 	if err != nil || interval <= 0 {
 		return 30 * time.Second
 	}
-	
+
 	return time.Duration(interval) * time.Second
 }
 
@@ -680,55 +753,66 @@ func getRefreshIntervalFromSettings(db *gorm.DB) time.Duration {
 func getProcessRefreshIntervalFromSettings(db *gorm.DB) time.Duration {
 	var setting models.SystemSettings
 	result := db.Where("key = ?", "process_refresh_interval").First(&setting)
-	
+
 	if result.Error != nil || setting.Value == "" {
 		// 默认 5 秒
 		return 5 * time.Second
 	}
-	
+
 	// 解析间隔值（秒）
 	interval, err := strconv.Atoi(setting.Value)
 	if err != nil || interval <= 0 {
 		return 5 * time.Second
 	}
-	
+
 	return time.Duration(interval) * time.Second
 }
 
 // watchRefreshIntervalChanges 监听刷新间隔配置的变化
-func watchRefreshIntervalChanges(db *gorm.DB, service *supervisor.SupervisorService, hub *websocket.Hub, stopRefresh *chan struct{}, stopMonitoring *chan struct{}) {
+func watchRefreshIntervalChanges(ctx context.Context, db *gorm.DB, service *supervisor.SupervisorService, hub *websocket.Hub, stopRefresh *chan struct{}, stopMonitoring *chan struct{}) {
 	ticker := time.NewTicker(10 * time.Second) // 每 10 秒检查一次配置
 	defer ticker.Stop()
-	
+
 	lastInterval := getRefreshIntervalFromSettings(db)
 	lastProcessInterval := getProcessRefreshIntervalFromSettings(db)
-	
-	for range ticker.C {
+
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Info("Stopping refresh interval watcher")
+			return
+		case <-ticker.C:
+		}
+
 		currentInterval := getRefreshIntervalFromSettings(db)
 		currentProcessInterval := getProcessRefreshIntervalFromSettings(db)
-		
+
 		// 检查节点刷新间隔是否变化
 		if currentInterval != lastInterval {
 			logger.Info("Refresh interval changed, restarting auto-refresh and monitoring",
 				zap.Duration("old_interval", lastInterval),
 				zap.Duration("new_interval", currentInterval))
-			
-			// 停止旧的自动刷新和监控
-			close(*stopRefresh)
-			close(*stopMonitoring)
-			
+
+			// 停止旧的自动刷新和监控(设置为 nil,避免重复关闭)
+			if *stopRefresh != nil {
+				close(*stopRefresh)
+			}
+			if *stopMonitoring != nil {
+				close(*stopMonitoring)
+			}
+
 			// 启动新的自动刷新和监控
 			*stopRefresh = service.StartAutoRefresh(currentInterval)
 			*stopMonitoring = service.StartMonitoring(currentInterval)
 			lastInterval = currentInterval
 		}
-		
+
 		// 检查进程刷新间隔是否变化
 		if currentProcessInterval != lastProcessInterval {
 			logger.Info("Process refresh interval changed, updating WebSocket hub",
 				zap.Duration("old_interval", lastProcessInterval),
 				zap.Duration("new_interval", currentProcessInterval))
-			
+
 			hub.SetRefreshInterval(currentProcessInterval)
 			lastProcessInterval = currentProcessInterval
 		}

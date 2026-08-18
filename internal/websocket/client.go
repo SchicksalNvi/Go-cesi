@@ -31,13 +31,23 @@ type ClientMessage struct {
 
 func (c *Client) readPump() {
 	defer func() {
-		c.hub.unregister <- c
+		// 非阻塞发送 unregister,避免在 Hub 主循环繁忙时阻塞本 goroutine
+		select {
+		case c.hub.unregister <- c:
+		default:
+			logger.Debug("Unregister channel full, closing connection directly",
+				zap.String("user_id", c.userID))
+		}
 		c.conn.Close()
 	}()
 
 	c.conn.SetReadLimit(maxMessageSize)
 	c.conn.SetReadDeadline(time.Now().Add(pongWait))
 	c.conn.SetPongHandler(func(string) error {
+		// 更新 lastPong 供心跳检测使用,并延长读取截止时间
+		c.mu.Lock()
+		c.lastPong = time.Now()
+		c.mu.Unlock()
 		c.conn.SetReadDeadline(time.Now().Add(pongWait))
 		return nil
 	})
@@ -113,6 +123,14 @@ func (c *Client) handleClientMessage(msg ClientMessage) {
 	switch msg.Type {
 	case "subscribe_node":
 		if nodeName, ok := msg.Data["node_name"].(string); ok {
+			// H-08: 订阅节点前校验节点 ACL,无权访问直接拒绝
+			if !c.canAccessNode(nodeName) {
+				logger.Warn("Client denied node subscription: no access",
+					zap.String("user_id", c.userID),
+					zap.String("node_name", nodeName))
+				c.handleViolation("subscribe_node: no node access")
+				return
+			}
 			c.subscribed.Store(nodeName, true)
 			logger.Info("Client subscribed to node",
 				zap.String("user_id", c.userID),
@@ -152,6 +170,14 @@ func (c *Client) handleClientMessage(msg ClientMessage) {
 
 	case "request_node_update":
 		if nodeName, ok := msg.Data["node_name"].(string); ok {
+			// H-08: 强制刷新前校验节点 ACL
+			if !c.canAccessNode(nodeName) {
+				logger.Warn("Client denied node update request: no access",
+					zap.String("user_id", c.userID),
+					zap.String("node_name", nodeName))
+				c.handleViolation("request_node_update: no node access")
+				return
+			}
 			logger.Info("Client requested node update",
 				zap.String("user_id", c.userID),
 				zap.String("node_name", nodeName))
@@ -183,6 +209,14 @@ func (c *Client) handleClientMessage(msg ClientMessage) {
 
 	case "subscribe_logs":
 		if nodeName, ok := msg.Data["node_name"].(string); ok {
+			// H-08: 订阅日志前校验节点 ACL
+			if !c.canAccessNode(nodeName) {
+				logger.Warn("Client denied log subscription: no node access",
+					zap.String("user_id", c.userID),
+					zap.String("node_name", nodeName))
+				c.handleViolation("subscribe_logs: no node access")
+				return
+			}
 			if processName, ok := msg.Data["process_name"].(string); ok {
 				logKey := fmt.Sprintf("%s:%s", nodeName, processName)
 				c.subscribed.Store("logs:"+logKey, true)

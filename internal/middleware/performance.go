@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"superview/internal/logger"
 	"go.uber.org/zap"
+	"superview/internal/logger"
 )
 
 // PerformanceMetrics 性能指标结构
@@ -22,19 +22,19 @@ type PerformanceMetrics struct {
 	StatusCodeCounts map[int]int64            `json:"status_code_counts"`
 	LastResetTime    time.Time                `json:"last_reset_time"`
 	// 内存监控指标
-	MemoryMetrics    *MemoryMetrics           `json:"memory_metrics"`
+	MemoryMetrics *MemoryMetrics `json:"memory_metrics"`
 }
 
 // MemoryMetrics 内存监控指标
 type MemoryMetrics struct {
-	AllocBytes      uint64    `json:"alloc_bytes"`        // 当前分配的字节数
-	TotalAllocBytes uint64    `json:"total_alloc_bytes"`  // 累计分配的字节数
-	SysBytes        uint64    `json:"sys_bytes"`          // 系统内存字节数
-	NumGC           uint32    `json:"num_gc"`             // GC次数
-	GCCPUFraction   float64   `json:"gc_cpu_fraction"`    // GC CPU占用比例
-	HeapObjects     uint64    `json:"heap_objects"`       // 堆对象数量
-	StackInUse      uint64    `json:"stack_in_use"`       // 栈使用量
-	LastUpdated     time.Time `json:"last_updated"`       // 最后更新时间
+	AllocBytes      uint64    `json:"alloc_bytes"`       // 当前分配的字节数
+	TotalAllocBytes uint64    `json:"total_alloc_bytes"` // 累计分配的字节数
+	SysBytes        uint64    `json:"sys_bytes"`         // 系统内存字节数
+	NumGC           uint32    `json:"num_gc"`            // GC次数
+	GCCPUFraction   float64   `json:"gc_cpu_fraction"`   // GC CPU占用比例
+	HeapObjects     uint64    `json:"heap_objects"`      // 堆对象数量
+	StackInUse      uint64    `json:"stack_in_use"`      // 栈使用量
+	LastUpdated     time.Time `json:"last_updated"`      // 最后更新时间
 }
 
 // EndpointStat 端点统计信息
@@ -108,22 +108,33 @@ func PerformanceMiddleware() gin.HandlerFunc {
 	}
 }
 
-// updateMemoryMetrics 更新内存指标
-func updateMemoryMetrics() {
+// collectMemoryMetrics reads the runtime counters without taking the global
+// metrics lock. Callers can then publish the snapshot in their own critical
+// section without recursively locking globalMetrics.mu.
+func collectMemoryMetrics() *MemoryMetrics {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
+
+	return &MemoryMetrics{
+		AllocBytes:      m.Alloc,
+		TotalAllocBytes: m.TotalAlloc,
+		SysBytes:        m.Sys,
+		NumGC:           m.NumGC,
+		GCCPUFraction:   m.GCCPUFraction,
+		HeapObjects:     m.HeapObjects,
+		StackInUse:      m.StackInuse,
+		LastUpdated:     time.Now(),
+	}
+}
+
+// updateMemoryMetrics 更新内存指标
+func updateMemoryMetrics() {
+	memoryMetrics := collectMemoryMetrics()
 
 	globalMetrics.mu.Lock()
 	defer globalMetrics.mu.Unlock()
 
-	globalMetrics.MemoryMetrics.AllocBytes = m.Alloc
-	globalMetrics.MemoryMetrics.TotalAllocBytes = m.TotalAlloc
-	globalMetrics.MemoryMetrics.SysBytes = m.Sys
-	globalMetrics.MemoryMetrics.NumGC = m.NumGC
-	globalMetrics.MemoryMetrics.GCCPUFraction = m.GCCPUFraction
-	globalMetrics.MemoryMetrics.HeapObjects = m.HeapObjects
-	globalMetrics.MemoryMetrics.StackInUse = m.StackInuse
-	globalMetrics.MemoryMetrics.LastUpdated = time.Now()
+	globalMetrics.MemoryMetrics = memoryMetrics
 }
 
 // StartMemoryMonitoring 启动内存监控
@@ -267,9 +278,9 @@ func GetPerformanceMetrics() *PerformanceMetrics {
 
 // ResetPerformanceMetrics 重置性能指标
 func ResetPerformanceMetrics() {
-	globalMetrics.mu.Lock()
-	defer globalMetrics.mu.Unlock()
+	memoryMetrics := collectMemoryMetrics()
 
+	globalMetrics.mu.Lock()
 	globalMetrics.RequestCount = 0
 	globalMetrics.TotalDuration = 0
 	globalMetrics.AverageDuration = 0
@@ -278,9 +289,8 @@ func ResetPerformanceMetrics() {
 	globalMetrics.EndpointMetrics = make(map[string]*EndpointStat)
 	globalMetrics.StatusCodeCounts = make(map[int]int64)
 	globalMetrics.LastResetTime = time.Now()
-
-	// 重置内存指标（保留当前内存状态但重置统计）
-	updateMemoryMetrics()
+	globalMetrics.MemoryMetrics = memoryMetrics
+	globalMetrics.mu.Unlock()
 
 	logger.Info("Performance metrics reset")
 }
@@ -304,14 +314,14 @@ func StartPerformanceCleanup(resetInterval time.Duration, endpointCleanupThresho
 			case <-cleanupTicker.C:
 				// 清理长时间未访问的端点指标
 				cleanupOldEndpoints(endpointCleanupThreshold)
-				
+
 				// 如果距离上次重置时间超过重置间隔，则重置指标
 				globalMetrics.mu.RLock()
 				lastReset := globalMetrics.LastResetTime
 				globalMetrics.mu.RUnlock()
-				
+
 				if time.Since(lastReset) >= resetInterval {
-					logger.Info("Auto-resetting performance metrics", 
+					logger.Info("Auto-resetting performance metrics",
 						zap.Duration("interval", resetInterval))
 					ResetPerformanceMetrics()
 				}
@@ -321,7 +331,7 @@ func StartPerformanceCleanup(resetInterval time.Duration, endpointCleanupThresho
 		}
 	}()
 
-	logger.Info("Performance cleanup started", 
+	logger.Info("Performance cleanup started",
 		zap.Duration("reset_interval", resetInterval),
 		zap.Duration("endpoint_cleanup_threshold", endpointCleanupThreshold))
 }
@@ -355,7 +365,7 @@ func cleanupOldEndpoints(threshold time.Duration) {
 	}
 
 	if cleanedCount > 0 {
-		logger.Info("Cleaned up old endpoint metrics", 
+		logger.Info("Cleaned up old endpoint metrics",
 			zap.Int("cleaned_count", cleanedCount),
 			zap.Duration("threshold", threshold))
 	}
