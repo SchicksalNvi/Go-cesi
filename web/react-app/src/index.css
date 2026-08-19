@@ -379,6 +379,26 @@ code, pre, .mono {
   color: var(--text-hi) !important;
 }
 
+/* Danger 按钮强制红色(覆盖上方 .ant-btn-default 的玻璃底色,保证批量停止为红色) */
+.ant-btn-danger,
+.ant-btn-dangerous {
+  background: var(--err) !important;
+  border-color: var(--err) !important;
+  color: #fff !important;
+}
+.ant-btn-danger:hover,
+.ant-btn-dangerous:hover {
+  background: rgba(251,113,133,0.85) !important;
+  border-color: rgba(251,113,133,0.85) !important;
+  color: #fff !important;
+}
+.ant-btn-danger:disabled,
+.ant-btn-dangerous:disabled {
+  background: rgba(251,113,133,0.35) !important;
+  border-color: rgba(251,113,133,0.35) !important;
+  color: rgba(255,255,255,0.6) !important;
+}
+
 .ant-tag {
   border-radius: 6px !important;
   font-family: var(--font-mono);
