@@ -200,6 +200,7 @@ export default function MainLayout() {
               display: 'flex',
               alignItems: 'center',
               justifyContent: collapsed ? 'center' : 'flex-start',
+              flexWrap: 'nowrap',
               gap: 8,
               padding: collapsed ? 0 : '0 12px',
               lineHeight: '34px',
@@ -216,9 +217,9 @@ export default function MainLayout() {
                       fontFamily: 'var(--font-mono)',
                       textTransform: 'uppercase',
                       lineHeight: '17px',
+                      whiteSpace: 'nowrap',
                       display: 'flex',
                       alignItems: 'center',
-                      height: 17,
                     }}
                   >
                     {language === 'en' ? 'Collapse' : '折叠'}
