@@ -15,7 +15,7 @@
 |---------|------|------|------|---------|
 | High    | 14   | 0    | 14   | 0       |
 | Medium  | 38   | 0    | 37   | 1       |
-| Low     | 17   | 0    | 17   | 0       |
+| Low     | 18   | 0    | 18   | 0       |
 
 ---
 
@@ -459,6 +459,12 @@
 - **影响**: 长操作类型在表格中视觉错乱,溢出污染旁边"来源/消息"列。
 - **修复记录**: 2026-08-19 · "操作"列宽度由 150 加宽至 230;`Tag` 增加 `whiteSpace:'nowrap'` 防止换行/溢出、`maxWidth:'100%'`+`textOverflow:'ellipsis'` 超长省略,并加 `title` 悬浮提示完整文本。`npx tsc --noEmit`(0 错误)、`npm run build` 通过,构建产物已被服务端 200 服务。
 
+### L-19 ✅ 进程页搜索后刷新,全屏 loading/数据替换冲掉搜索结果
+- **位置**: `web/react-app/src/pages/Processes/index.tsx:44-55`(`loadProcesses`)+ `:164-170`(全屏 Spin)
+- **问题**: 运行时实测发现。`loadProcesses` 每次执行都 `setLoading(true)`,而组件在 `loading` 为 true 时整体渲染 `<Spin>`(全屏加载圈)。用户搜索出结果后,若触达自动/WS/手动刷新,页面立即闪为加载圈且在数据返回前列表被替换,搜索结果视觉上"马上没了",非常不合理。
+- **影响**: WebSocket 开启时进程状态频繁刷新,用户在搜索/查看结果时页面反复闪 loading + 列表跳变,搜索与操作体验割裂。
+- **修复记录**: 2026-08-19 · `loadProcesses` 仅当当前无数据(`processes.length === 0`,即首次加载)时 `setLoading(true)`;后续刷新保持列表显示不闪全屏 Spin。数据返回后在函数内立即按当前 `searchText` 重新过滤 `filteredProcesses`(与既有 `useEffect([searchText,processes])` 一致),确保搜索结果不丢失。`npx tsc --noEmit`(0 错误)、`npm run build` 通过,构建产物已服务。
+
 ### L-13 ✅ WebSocket 节点 ACL 快照在节点权限撤销后不会刷新
 - **位置**: `internal/websocket/hub.go:1042-1059`(HandleWebSocket 中构建 `allowedNodeIDs` 快照)
 - **问题**: 第八轮复审发现。`HandleWebSocket` 在握手时查询 `NodeAccess` 构建 `allowedNodeIDs` 快照,该快照仅创建一次,永久缓存于 `Client` 结构。管理员通过 `UpdateUserNodeAccess` 撤销某节点的读取权限后,已建立 WebSocket 连接的 `allowedNodeIDs` 不被刷新,该客户端仍能持续通过实时推送(z.nodes_update、log_stream 等)收到被撤销节点的数据。REST API 不受影响(每请求重载用户)。
@@ -588,7 +594,7 @@
 
 ---
 
-_最后更新:2026-08-19 · 前端视觉重构(L-16)、日志查看器白底白字(L-17)、日志级别误判(M-36)、活动日志操作列加宽(L-18)、自动刷新打断操作(M-37)。共记录 69 项:0 TODO、68 DONE、1 WONTFIX(High 14、Medium 38、Low 17)。_
+_最后更新:2026-08-19 · 前端视觉重构(L-16)、日志查看器白底白字(L-17)、日志级别误判(M-36)、活动日志操作列加宽(L-18)、自动刷新打断操作(M-37)。共记录 70 项:0 TODO、69 DONE、1 WONTFIX(High 14、Medium 38、Low 18)。_
 
 _本轮验证状态:`go build ./...` 通过、`go vet ./...` 通过;`npx tsc --noEmit` 通过(web/react-app)、`npm run build` 通过;全量审计无表情符号、无 `@ant-design/icons` 残留;运行中服务 `curl` 验证登录/数据端点 200,新 CSP 头(含字体放行)已生效。tools/ 已添加 `//go:build ignore` 标签,`go build/vet/test ./...` 不再因此失败。_
 

@@ -42,10 +42,24 @@ const ProcessesPage: React.FC = () => {
 
   // function declaration — hoisted, avoids TDZ in minified bundle
   async function loadProcesses() {
-    setLoading(true);
+    // 仅在首次加载(尚无数据)时显示全屏 loading;后续刷新保持列表显示,
+    // 避免搜索结果被 loading 闪烁"冲掉"。
+    if (processes.length === 0) {
+      setLoading(true);
+    }
     try {
       const response = await processesApi.getAggregated();
       setProcesses(response.processes || []);
+
+      // 数据更新后立即重新应用当前搜索过滤,保证搜索结果不丢失。
+      const next = response.processes || [];
+      if (searchText.trim()) {
+        setFilteredProcesses(next.filter((proc) =>
+          proc.name.toLowerCase().includes(searchText.trim().toLowerCase())
+        ));
+      } else {
+        setFilteredProcesses(next);
+      }
     } catch (error) {
       console.error('Failed to load processes:', error);
       message.error('Failed to load processes');
