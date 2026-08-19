@@ -14,7 +14,7 @@
 | 严重程度 | 总数 | TODO | DONE | WONTFIX |
 |---------|------|------|------|---------|
 | High    | 14   | 0    | 14   | 0       |
-| Medium  | 37   | 0    | 36   | 1       |
+| Medium  | 38   | 0    | 37   | 1       |
 | Low     | 17   | 0    | 17   | 0       |
 
 ---
@@ -338,6 +338,16 @@
 - **修复建议**: 改为词元边界匹配,不再用无边界子串。
 - **修复记录**: 2026-08-19 · `extractLogLevel` 重写为**词元边界匹配**:级别仅当其前后为合法边界(空白/括号/等号/管道/行首尾 等)时才算命中;前边界额外排除点号(`.`)、冒号(`:`)、连字符(`-`)、斜杠(`/`)(避免类名/方法/路径如 `BasicErrorController.errorHtml`、`report:ERROR`、`/error` 误报),后边界排除左括号(`(`)与点号(`.`)(避免 `error(` 方法调用误报);支持 `Level=ERROR` 键值写法;`WARN` 归一化为 `WARNING`。新增 `isLogLevelBoundary`/`isLogLevelAfterBoundary` 辅助函数。`go build ./...` 通过;新增 `internal/supervisor/log_level_test.go`(`TestExtractLogLevel` 13 例 + `TestParseLogEntriesLevels` 端到端 5 行混合日志),均通过。
 
+### M-37 ✅ 自动刷新固定间隔,打断用户正在进行的弹窗/按钮操作
+- **位置**: `web/react-app/src/hooks/useAutoRefresh.ts`(全量)
+- **问题**: 运行时实测发现。`useAutoRefresh` 用固定 `setInterval` 定时触发刷新回调(如进程页每 N 秒拉取 `/api/processes/aggregated`,看日志时控制台持续刷请求),且完全**不感知用户交互**——即使正在日志查看弹窗内阅读/操作、点击批量操作等,定时刷新仍照常发起,数据更新引发重渲染,打断/干扰正在进行的手上操作。
+- **影响**: 用户查看日志或做操作时页面被定时刷新打断,体验差,长操作(如批量启停)进行中被列表重取干扰。
+- **修复建议**: 自动刷新感知用户交互与弹窗状态,交互/弹窗打开时暂停。
+- **修复记录**: 2026-08-19 · `useAutoRefresh` 增加两级暂停机制:
+  1. **交互抑制**:监听全局 mousemove/mousedown/click/wheel/keydown/touchstart/touchmove,最近一次交互的时间戳;距最近交互 `pauseAfterInteractionMs`(默认 15s)内的定时 tick 直接跳过。鼠标/触摸移动做了 800ms 节流。参数 `pauseAfterInteractionMs`、`interactionEvents` 可配置。
+  2. **浮层抑制**:新增 `hasOpenOverlay()`(检测页面存在未隐藏的 antd Modal 遮罩 `.ant-modal-wrap` 或打开中的 Drawer `.ant-drawer-open`),任一弹窗/抽屉打开时暂停自动刷新——彻底解决日志查看弹窗期间被刷新的问题。
+  4 个调用方(Dashboard/Nodes/Processes/Logs)不受影响。`npx tsc --noEmit`(0 错误)、`npm run build` 通过;确认新逻辑已进 `useAutoRefresh-D_jGzttf.js` chunk 并被服务端 200 服务。
+
 ### M-35 ✅ `sendInitialData` 存在 TOCTOU 竞态,可能向已关闭通道发送数据导致 panic
 - **位置**: `internal/websocket/hub.go:791-835`(`sendInitialData`)
 - **问题**: 第七轮复审发现。注册后 `go h.sendInitialData(client)` 异步执行;函数先 `h.clientsMu.RLock()` 检查 `exists`,释放锁后才构建数据并 `select { case client.send <- data: }`。若客户端在检查与发送之间断开,`unregister`/`cleanupWorker` 已执行 `closeSendOnce.Do(close(client.send))`,对已关闭通道的发送**必然 panic**(select 无法拦截,只有阻塞/默认分支保护)。低概率但触发即进程崩溃。
@@ -578,7 +588,7 @@
 
 ---
 
-_最后更新:2026-08-19 · 前端视觉重构(L-16)、日志查看器白底白字(L-17)、日志级别误判(M-36)、活动日志操作列加宽(L-18)。共记录 68 项:0 TODO、67 DONE、1 WONTFIX(High 14、Medium 37、Low 17)。_
+_最后更新:2026-08-19 · 前端视觉重构(L-16)、日志查看器白底白字(L-17)、日志级别误判(M-36)、活动日志操作列加宽(L-18)、自动刷新打断操作(M-37)。共记录 69 项:0 TODO、68 DONE、1 WONTFIX(High 14、Medium 38、Low 17)。_
 
 _本轮验证状态:`go build ./...` 通过、`go vet ./...` 通过;`npx tsc --noEmit` 通过(web/react-app)、`npm run build` 通过;全量审计无表情符号、无 `@ant-design/icons` 残留;运行中服务 `curl` 验证登录/数据端点 200,新 CSP 头(含字体放行)已生效。tools/ 已添加 `//go:build ignore` 标签,`go build/vet/test ./...` 不再因此失败。_
 
