@@ -114,14 +114,16 @@ export default function Login() {
             <div style={{ display: 'inline-flex', padding: '14px 26px', borderRadius: 18, background: 'var(--grad-soft)', border: '1px solid rgba(129,140,248,0.25)' }}>
               <SuperviewLogo size={44} collapsed={false} centered />
             </div>
-            <div className="hero-kicker" style={{ marginTop: 22, marginBottom: 8 }}>
-              OBSIDIAN CONTROL PLANE
-            </div>
-            <h1 className="display" style={{ fontSize: 27, marginBottom: 6 }}>
-              <span className="gradient-text">Superview</span>
-            </h1>
-            <p style={{ color: 'var(--text-low)', fontSize: 13.5, letterSpacing: '0.02em' }}>
-              Supervisor Management Platform
+            <p
+              className="display"
+              style={{
+                marginTop: 24,
+                fontSize: 17,
+                letterSpacing: '0.04em',
+                color: 'var(--text-mid)',
+              }}
+            >
+              {t.login.subtitle || 'Supervisor Management Platform'}
             </p>
           </div>
 
