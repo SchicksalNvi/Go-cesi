@@ -474,16 +474,86 @@ func (n *Node) parseLogEntries(logText, logType, processName string) []LogEntry 
 }
 
 // extractLogLevel 从日志行中提取日志级别
+// 采用"词元边界"匹配而非子串匹配,避免把消息文本中的
+// BasicErrorController.errorHtml / handleError / error( 等含子串的行误判为 ERROR。
+// 支持的常见日志级别格式:
+//   - 独立词元(空格分隔): "... INFO ..." / "...\tERROR\t..." / "Level=ERROR"
+//   - 方括号形式: "[INFO]" "[WARN]" "[ERROR]"
+// 级别按其严重程度降序判断,命中即返回(保证子串包含低优先级级别时不误报)。
 func extractLogLevel(line string) string {
-	line = strings.ToUpper(line)
-	
-	levels := []string{"ERROR", "WARN", "WARNING", "INFO", "DEBUG", "TRACE", "FATAL"}
+	upper := strings.ToUpper(line)
+
+	// 按严重程度降序的级别列表(ERROR 与 WARNING 同义,统一为 ERROR)
+	levels := []string{"FATAL", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"}
+
 	for _, level := range levels {
-		if strings.Contains(line, level) {
+		// 普通词元匹配:级别前后须为单词边界(空格/制表/冒号/等号/左括号或行首行尾)
+		if matchLogLevelToken(upper, level) {
+			// 归一化别名
+			if level == "WARN" {
+				return "WARNING"
+			}
 			return level
 		}
 	}
 	return "INFO" // 默认级别
+}
+
+// matchLogLevelToken 判断 word 是否为 line 中以单词边界分隔的独立词元,
+// 同时兼容 "LEVEL=" 键值写法(如 "Level=ERROR")。
+func matchLogLevelToken(line, word string) bool {
+	// 键值形式:支持 "LEVEL=" 前无单词边界
+	kv := word + "="
+	if strings.Contains(line, kv) {
+		return true
+	}
+	// 带前导字符(键值前可能有空格),如 " Level=",已由上面覆盖;这里再兼容 "=LEVEL" 后置写法
+	kv2 := "=" + word
+	if strings.Contains(line, kv2) {
+		return true
+	}
+
+	for i := 0; i+len(word) <= len(line); i++ {
+		if line[i:i+len(word)] != word {
+			continue
+		}
+		beforeOK := i == 0 || isLogLevelBoundary(line[i-1])
+		afterOK := i+len(word) == len(line) || isLogLevelAfterBoundary(line[i+len(word)])
+		if beforeOK && afterOK {
+			return true
+		}
+	}
+	return false
+}
+
+// isLogLevelBoundary 判断字符 c 是否可作为日志级别词元的"前"边界。
+// 前边界为:空白符、方括号、圆括号、大括号、分号、等号、管道、行首等非字母数字字符。
+// 注意:点号(.)、冒号(:)、连字符(-)、斜杠(/)故意**不作为**前边界——
+// 它们多属于 Java 类名/方法调用(如 BasicErrorController.errorActually、ssl.errorLog、
+// report:ERROR、/error),若放宽会把这类含子串的行误判为 ERROR。
+func isLogLevelBoundary(c byte) bool {
+	switch {
+	case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c >= '0' && c <= '9':
+		return false
+	case c == '.', c == ':', c == '-', c == '/':
+		return false
+	default:
+		return true
+	}
+}
+
+// isLogLevelAfterBoundary 判断字符 c 是否可作为日志级别词元的"后"边界。
+// 级别后紧邻左括号( 表示方法调用(如 error(、handleError(),不算独立级别词元。
+// 点号(.)也不作为后边界(如 error.foo 是成员访问)。
+func isLogLevelAfterBoundary(c byte) bool {
+	switch c {
+	case '(':
+		return false
+	case '.':
+		return false
+	default:
+		return isLogLevelBoundary(c)
+	}
 }
 
 // extractTimestamp 从日志行中提取时间戳

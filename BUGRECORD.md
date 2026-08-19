@@ -14,7 +14,7 @@
 | 严重程度 | 总数 | TODO | DONE | WONTFIX |
 |---------|------|------|------|---------|
 | High    | 14   | 0    | 14   | 0       |
-| Medium  | 36   | 0    | 35   | 1       |
+| Medium  | 37   | 0    | 36   | 1       |
 | Low     | 16   | 0    | 16   | 0       |
 
 ---
@@ -331,6 +331,13 @@
 - **影响**: 删除与后台导入并发时,可能残留文件或产生幽灵状态更新;无崩溃但行为不确定。
 - **修复建议**: 删除时等待 job 真正终止(等待 goroutine 或轮询 `dataJobCancels` 清空)再删文件;或为 job 增加显式 `cancelled` 终态并跳过状态回写。
 
+### M-36 ✅ 日志级别解析用子串匹配,误把含 error 字样消息判为 ERROR
+- **位置**: `internal/supervisor/node.go:477-487`(`extractLogLevel`)
+- **问题**: 运行时实测发现。`extractLogLevel` 采用 `strings.Contains(line, level)` 的**子串匹配**,且 ERROR 在优先级列表最前。Spring Boot 等日志消息里常含 `BasicErrorController.errorHtml`、`.error(`、`handleError`、`/error` 等方法/路径片段,整体 `ToUpper` 后即包含子串 "ERROR",导致本应 INFO 的一行被误判为 ERROR。
+- **影响**: 进程日志查看与日志分析中日志级别严重失真(大量 INFO 显示为 ERROR),误导告警与排障。
+- **修复建议**: 改为词元边界匹配,不再用无边界子串。
+- **修复记录**: 2026-08-19 · `extractLogLevel` 重写为**词元边界匹配**:级别仅当其前后为合法边界(空白/括号/等号/管道/行首尾 等)时才算命中;前边界额外排除点号(`.`)、冒号(`:`)、连字符(`-`)、斜杠(`/`)(避免类名/方法/路径如 `BasicErrorController.errorHtml`、`report:ERROR`、`/error` 误报),后边界排除左括号(`(`)与点号(`.`)(避免 `error(` 方法调用误报);支持 `Level=ERROR` 键值写法;`WARN` 归一化为 `WARNING`。新增 `isLogLevelBoundary`/`isLogLevelAfterBoundary` 辅助函数。`go build ./...` 通过;新增 `internal/supervisor/log_level_test.go`(`TestExtractLogLevel` 13 例 + `TestParseLogEntriesLevels` 端到端 5 行混合日志),均通过。
+
 ### M-35 ✅ `sendInitialData` 存在 TOCTOU 竞态,可能向已关闭通道发送数据导致 panic
 - **位置**: `internal/websocket/hub.go:791-835`(`sendInitialData`)
 - **问题**: 第七轮复审发现。注册后 `go h.sendInitialData(client)` 异步执行;函数先 `h.clientsMu.RLock()` 检查 `exists`,释放锁后才构建数据并 `select { case client.send <- data: }`。若客户端在检查与发送之间断开,`unregister`/`cleanupWorker` 已执行 `closeSendOnce.Do(close(client.send))`,对已关闭通道的发送**必然 panic**(select 无法拦截,只有阻塞/默认分支保护)。低概率但触发即进程崩溃。
@@ -565,7 +572,7 @@
 
 ---
 
-_最后更新:2026-08-18 · 前端按 `.agents/front.md` 完成视觉重构(L-16),并修复日志查看器白底白字(L-17)。共记录 66 项:0 TODO、65 DONE、1 WONTFIX(High 14、Medium 36、Low 16)。_
+_最后更新:2026-08-19 · 前端视觉重构(L-16)、日志查看器白底白字(L-17)、日志级别误判(M-36)。共记录 67 项:0 TODO、66 DONE、1 WONTFIX(High 14、Medium 37、Low 16)。_
 
 _本轮验证状态:`go build ./...` 通过、`go vet ./...` 通过;`npx tsc --noEmit` 通过(web/react-app)、`npm run build` 通过;全量审计无表情符号、无 `@ant-design/icons` 残留;运行中服务 `curl` 验证登录/数据端点 200,新 CSP 头(含字体放行)已生效。tools/ 已添加 `//go:build ignore` 标签,`go build/vet/test ./...` 不再因此失败。_
 
