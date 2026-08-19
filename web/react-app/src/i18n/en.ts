@@ -555,6 +555,13 @@ export const en = {
     group: 'Group',
     viewConfig: 'Config',
     configNotFound: 'No configuration found for this process',
+    batchRestart: 'Restart All Selected',
+    selectAtLeastOne: 'Select at least one process',
+    batchRestartDone: 'Restarted',
+    batchRestartFail: 'process(es) failed to restart',
+    batchStop: 'Stop Selected',
+    batchStopDone: 'Stopped',
+    batchStopFail: 'process(es) failed to stop',
   },
 
   // Nodes Toolbar

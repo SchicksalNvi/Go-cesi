@@ -49,6 +49,9 @@ const NodeDetail: React.FC = () => {
   const [configVisible, setConfigVisible] = useState(false);
   const [configLoading, setConfigLoading] = useState(false);
   const [configData, setConfigData] = useState<ProcessConfigInfo | null>(null);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [batchRestartLoading, setBatchRestartLoading] = useState(false);
+  const [batchStopLoading, setBatchStopLoading] = useState(false);
   const [pageSize, setPageSize] = useState(10);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState('');
@@ -124,6 +127,48 @@ const NodeDetail: React.FC = () => {
     } finally {
       setActionLoading(prev => ({ ...prev, [actionKey]: false }));
     }
+  };
+
+  // 批量执行勾选进程的动作 (restart / stop)
+  const handleBatchAction = async (action: 'restart' | 'stop') => {
+    if (selectedRowKeys.length === 0) {
+      message.warning(t.processInstance.selectAtLeastOne || '请至少选择一个进程');
+      return;
+    }
+    if (action === 'restart') setBatchRestartLoading(true);
+    else setBatchStopLoading(true);
+    let ok = 0;
+    let fail = 0;
+    const nn = nodeName || '';
+    for (const key of selectedRowKeys as string[]) {
+      try {
+        if (action === 'restart') {
+          await nodesApi.restartProcess(nn, key);
+        } else {
+          await nodesApi.stopProcess(nn, key);
+        }
+        ok++;
+      } catch (error: any) {
+        fail++;
+        console.error(`Failed to ${action} ${key}:`, error);
+      }
+    }
+    if (action === 'restart') setBatchRestartLoading(false);
+    else setBatchStopLoading(false);
+    if (ok > 0)
+      message.success(
+        action === 'restart'
+          ? (t.processInstance.batchRestartDone || `已重启 ${ok} 个进程`)
+          : (t.processInstance.batchStopDone || `已停止 ${ok} 个进程`)
+      );
+    if (fail > 0)
+      message.error(
+        action === 'restart'
+          ? (t.processInstance.batchRestartFail || `${fail} 个进程重启失败`)
+          : (t.processInstance.batchStopFail || `${fail} 个进程停止失败`)
+      );
+    setSelectedRowKeys([]);
+    await loadNodeDetail();
   };
 
   const handleViewLogs = (process: Process) => {
@@ -377,11 +422,47 @@ const NodeDetail: React.FC = () => {
             key: 'processes',
             label: t.processes.title,
             children: (
-              <Card>
+              <Card
+                extra={
+                  <Space>
+                    <Button
+                      size="small"
+                      icon={<RefreshCw size={14} strokeWidth={1.7} />}
+                      onClick={() => handleBatchAction('restart')}
+                      loading={batchRestartLoading}
+                      disabled={selectedRowKeys.length === 0}
+                      type="primary"
+                    >
+                      {t.processInstance.batchRestart || '批量重启'}({selectedRowKeys.length})
+                    </Button>
+                    <Popconfirm
+                      title={t.nodeDetail.stopProcess}
+                      onConfirm={() => handleBatchAction('stop')}
+                      okText={t.common.yes}
+                      cancelText={t.common.no}
+                      disabled={selectedRowKeys.length === 0}
+                    >
+                      <Button
+                        size="small"
+                        icon={<Square size={14} strokeWidth={1.7} />}
+                        loading={batchStopLoading}
+                        disabled={selectedRowKeys.length === 0}
+                        danger
+                      >
+                        {t.processInstance.batchStop || '批量停止'}({selectedRowKeys.length})
+                      </Button>
+                    </Popconfirm>
+                  </Space>
+                }
+              >
                 <Table
                   columns={processColumns}
                   dataSource={processes}
                   rowKey="name"
+                  rowSelection={{
+                    selectedRowKeys,
+                    onChange: (keys) => setSelectedRowKeys(keys),
+                  }}
                   pagination={{
                     pageSize: pageSize,
                     showSizeChanger: true,

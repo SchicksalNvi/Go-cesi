@@ -557,6 +557,13 @@ export const zh: TranslationKeys = {
     group: '组',
     viewConfig: '配置',
     configNotFound: '未找到该进程的配置信息',
+    batchRestart: '批量重启',
+    selectAtLeastOne: '请至少选择一个进程',
+    batchRestartDone: '已重启',
+    batchRestartFail: '个进程重启失败',
+    batchStop: '批量停止',
+    batchStopDone: '已停止',
+    batchStopFail: '个进程停止失败',
   },
 
   // Nodes Toolbar
