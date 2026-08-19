@@ -10,6 +10,7 @@ import (
 	"superview/internal/config"
 	"superview/internal/errors"
 	"superview/internal/logger"
+	"superview/internal/supervisor/xmlrpc"
 	"go.uber.org/zap"
 )
 
@@ -421,6 +422,57 @@ func (s *SupervisorService) GetProcessLogs(nodeName, processName string) (map[st
 		return nil, err
 	}
 	return node.GetProcessLogs(processName)
+}
+
+// ReadProcessLogs 按偏移读取进程历史日志(分页) - 符合官方 API 规范
+func (s *SupervisorService) ReadProcessLogs(nodeName, processName, logType string, offset, length int) (string, int, bool, error) {
+	node, err := s.GetNode(nodeName)
+	if err != nil {
+		return "", 0, false, err
+	}
+	return node.ReadProcessLogs(processName, logType, offset, length)
+}
+
+// ClearProcessLogs 清空并重开指定进程的 stdout/stderr 日志 - 符合官方 API 规范
+func (s *SupervisorService) ClearProcessLogs(nodeName, processName string) error {
+	node, err := s.GetNode(nodeName)
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	operationName := fmt.Sprintf("clear_logs_%s_%s", nodeName, processName)
+	return s.timeoutManager.ExecuteWithRetry(ctx, operationName, func(ctx context.Context) error {
+		return node.ClearProcessLogs(processName)
+	})
+}
+
+// GetAllConfigInfo 获取节点所有进程配置信息 - 符合官方 API 规范
+func (s *SupervisorService) GetAllConfigInfo(nodeName string) ([]xmlrpc.ProcessConfigInfo, error) {
+	node, err := s.GetNode(nodeName)
+	if err != nil {
+		return nil, err
+	}
+	return node.GetAllConfigInfo()
+}
+
+// ReloadConfig 重载节点 supervisord 配置 - 符合官方 API 规范
+func (s *SupervisorService) ReloadConfig(nodeName string) (*xmlrpc.ReloadResult, error) {
+	node, err := s.GetNode(nodeName)
+	if err != nil {
+		return nil, err
+	}
+	ctx := context.Background()
+	operationName := fmt.Sprintf("reload_config_%s", nodeName)
+	var res *xmlrpc.ReloadResult
+	err = s.timeoutManager.ExecuteWithRetry(ctx, operationName, func(ctx context.Context) error {
+		r, e := node.ReloadConfig()
+		if e != nil {
+			return e
+		}
+		res = r
+		return nil
+	})
+	return res, err
 }
 
 // StartAllProcesses starts all processes on a specific node with timeout management

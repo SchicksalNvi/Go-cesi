@@ -83,11 +83,16 @@ func SetupRoutesWithConfig(r *gin.Engine, db *gorm.DB, service *supervisor.Super
 			nodesGroup.POST("/:node_name/processes/:process_name/stop", permissionChecker.RequirePermission(models.PermissionProcessExecute), nodesAPI.StopProcess)
 			nodesGroup.POST("/:node_name/processes/:process_name/restart", permissionChecker.RequirePermission(models.PermissionProcessExecute), nodesAPI.RestartProcess)
 			nodesGroup.GET("/:node_name/processes/:process_name/logs", permissionChecker.RequirePermission(models.PermissionLogRead), nodesAPI.GetProcessLogs)
+			nodesGroup.GET("/:node_name/processes/:process_name/logs/page", permissionChecker.RequirePermission(models.PermissionLogRead), nodesAPI.ReadProcessLogs)
+			nodesGroup.POST("/:node_name/processes/:process_name/logs/clear", permissionChecker.RequirePermission(models.PermissionLogWrite), nodesAPI.ClearProcessLogs)
 			nodesGroup.GET("/:node_name/processes/:process_name/logs/stream", permissionChecker.RequirePermission(models.PermissionLogRead), nodesAPI.GetProcessLogStream)
 			// Batch operations
 			nodesGroup.POST("/:node_name/processes/start-all", permissionChecker.RequirePermission(models.PermissionProcessExecute), nodesAPI.StartAllProcesses)
 			nodesGroup.POST("/:node_name/processes/stop-all", permissionChecker.RequirePermission(models.PermissionProcessExecute), nodesAPI.StopAllProcesses)
 			nodesGroup.POST("/:node_name/processes/restart-all", permissionChecker.RequirePermission(models.PermissionProcessExecute), nodesAPI.RestartAllProcesses)
+			// Config management (getAllConfigInfo / reloadConfig)
+			nodesGroup.GET("/:node_name/processes/configs", permissionChecker.RequirePermission(models.PermissionProcessRead), nodesAPI.GetAllConfigInfo)
+			nodesGroup.POST("/:node_name/processes/reload-config", permissionChecker.RequirePermission(models.PermissionProcessWrite), nodesAPI.ReloadConfig)
 		}
 
 		// User management API

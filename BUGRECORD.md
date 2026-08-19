@@ -14,7 +14,7 @@
 | 严重程度 | 总数 | TODO | DONE | WONTFIX |
 |---------|------|------|------|---------|
 | High    | 14   | 0    | 14   | 0       |
-| Medium  | 39   | 0    | 38   | 1       |
+| Medium  | 40   | 0    | 39   | 1       |
 | Low     | 18   | 0    | 18   | 0       |
 
 ---
@@ -345,6 +345,19 @@
 - **修复建议**: 显式传 `wait=true` 保持官方同步语义(保证返回结果准确),并将 HTTP 客户端超时提升到大于 `SingleOperationTimeout`(30s)。
 - **修复记录**: 2026-08-19 · `StartProcess`/`StopProcess` 调用改为 `[]interface{}{name, true}`(显式 wait=true,官方同步语义,supervisord 阻塞到进程完全启动/停止才返回,结果真实准确);`client.go` HTTP 客户端超时 5s→35s(大于 SingleOperationTimeout 30s,由上层超时管理优先负责,避免 HTTP 层误截断)。`encodeValue` 布尔编码已用测试验证(`true`→`<boolean>1</boolean>`)。批量操作维持逐进程遍历(不强制要求进程编组,不使用 startProcessGroup/stopProcessGroup)。`go build ./...`、`go test ./internal/supervisor/...`、`go vet` 全部通过;服务已重建重启(PID 93338)。
 
+### M-39 ✅ 新增官方 XML-RPC 方法(历史日志分页/清空日志/配置管理)
+- **位置**: `internal/supervisor/xmlrpc/supervisor.go`(`ReadProcessStdoutLog`/`ReadProcessStderrLog`/`ClearProcessLogs`/`GetAllConfigInfo`/`ReloadConfig`)、`internal/supervisor/node.go`、`internal/supervisor/service.go`、`internal/api/nodes.go`、`internal/api/api.go` 路由、`web/react-app/src/api/nodes.ts`、`web/react-app/src/components/LogViewer.tsx`、`web/react-app/src/i18n/*.ts`
+- **问题/需求**: 对照 supervisord 官方 API(https://supervisord.org/api.html)罗列了项目未使用的方法,经确认后实现三项能力:
+  1. **历史日志分页**: 官方 `readProcessStdoutLog(name,offset,length)` / `readProcessStderrLog(name,offset,length)`,按偏移读取历史日志(区别于 tail)。
+  2. **清空日志**: 官方 `clearProcessLogs(name)`,清空并重开进程 stdout/stderr 日志。
+  3. **配置管理**: 官方 `getAllConfigInfo()`(获取所有进程配置信息)与 `reloadConfig()`(重载配置,返回 added/changed/removed 三组)。
+- **实现**: 
+  - XML-RPC 层: 新增 5 个方法,复用 `parseTailLogResponse`/`extractStructBlocks`/`extractFieldValue` 解析;新增 `ProcessConfigInfo`/`ReloadResult` 结构、`extractStringArrayField`(解析 reloadConfig 的数组字段)。
+  - Node/Service 层: 包装 `ReadProcessLogs`(按 logType 分派 stdout/stderr)、`ClearProcessLogs`、`GetAllConfigInfo`、`ReloadConfig`;ClearProcessLogs/ReloadConfig 走 timeoutManager。
+  - HTTP 层: 新增 4 个路由 —— `GET /nodes/:node/processes/:proc/logs/page`、`POST /nodes/:node/processes/:proc/logs/clear`、`GET /nodes/:node/processes/configs`、`POST /nodes/:node/processes/reload-config`,均挂权限校验。
+  - 前端: `nodes.ts` 新增 4 个 API;`LogViewer.tsx` 新增"加载更早(Load older)"分页按钮(调 readProcessLogs,去重并入现有条目)、清除按钮改为调 `clearProcessLogs`(带确认弹窗);新增 i18n 键(en/zh)。
+- **验证**: `go build ./...`、`go test ./internal/supervisor/... ./internal/api/...` 全通过;`npx tsc --noEmit` 0 错误、`npm run build` 成功;新路由经 curl 验证返回 401(已挂鉴权,与既有路由一致);修复了部署时发现的历史问题——`./superview.sh stop` 因 PID 文件与实际监听进程不一致无法停掉旧二进制(旧 PID 12380 持续占用 8081 服务旧代码),手动 `pkill` 后干净重启(PID 147265)新路由才生效。
+
 ### M-37 ✅ 自动刷新固定间隔,打断用户正在进行的弹窗/按钮操作
 - **位置**: `web/react-app/src/hooks/useAutoRefresh.ts`(全量)
 - **问题**: 运行时实测发现。`useAutoRefresh` 用固定 `setInterval` 定时触发刷新回调(如进程页每 N 秒拉取 `/api/processes/aggregated`,看日志时控制台持续刷请求),且完全**不感知用户交互**——即使正在日志查看弹窗内阅读/操作、点击批量操作等,定时刷新仍照常发起,数据更新引发重渲染,打断/干扰正在进行的手上操作。
@@ -601,7 +614,7 @@
 
 ---
 
-_最后更新:2026-08-19 · 前端视觉重构(L-16)、日志查看器白底白字(L-17)、日志级别误判(M-36)、活动日志操作列加宽(L-18)、自动刷新打断操作(M-37)。共记录 71 项:0 TODO、70 DONE、1 WONTFIX(High 14、Medium 39、Low 18)。_
+_最后更新:2026-08-19 · 前端视觉重构(L-16)、日志查看器白底白字(L-17)、日志级别误判(M-36)、活动日志操作列加宽(L-18)、自动刷新打断操作(M-37)、XML-RPC wait 同步性(M-38)、新增官方 XML-RPC 方法(M-39)。共记录 72 项:0 TODO、71 DONE、1 WONTFIX(High 14、Medium 40、Low 18)。_
 
 _本轮验证状态:`go build ./...` 通过、`go vet ./...` 通过;`npx tsc --noEmit` 通过(web/react-app)、`npm run build` 通过;全量审计无表情符号、无 `@ant-design/icons` 残留;运行中服务 `curl` 验证登录/数据端点 200,新 CSP 头(含字体放行)已生效。tools/ 已添加 `//go:build ignore` 标签,`go build/vet/test ./...` 不再因此失败。_
 

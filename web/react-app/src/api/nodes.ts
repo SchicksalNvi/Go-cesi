@@ -88,4 +88,38 @@ export const nodesApi = {
         max_lines: maxLines || 50 
       }
     }),
+
+  // 按偏移量分页读取进程历史日志 (readProcessStdoutLog/readProcessStderrLog)
+  readProcessLogs: (
+    nodeName: string,
+    processName: string,
+    logType: 'stdout' | 'stderr',
+    offset?: number,
+    length?: number
+  ) =>
+    apiClient.get<{
+      status: string;
+      log_type: string;
+      data: string;
+      offset: number;
+      overflow: boolean;
+    }>(`/nodes/${nodeName}/processes/${processName}/logs/page`, {
+      params: {
+        log_type: logType,
+        offset: offset ?? 0,
+        length: length ?? 5000,
+      },
+    }),
+
+  // 清空进程日志 (clearProcessLogs)
+  clearProcessLogs: (nodeName: string, processName: string) =>
+    apiClient.post(`/nodes/${nodeName}/processes/${processName}/logs/clear`),
+
+  // 获取节点所有进程配置信息 (getAllConfigInfo)
+  getAllConfigInfo: (nodeName: string) =>
+    apiClient.get(`/nodes/${nodeName}/processes/configs`),
+
+  // 重载节点 supervisord 配置 (reloadConfig)
+  reloadConfig: (nodeName: string) =>
+    apiClient.post(`/nodes/${nodeName}/processes/reload-config`),
 };

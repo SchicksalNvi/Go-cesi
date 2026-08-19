@@ -11,7 +11,7 @@ import {
   Input,
   Select,
 } from 'antd';
-import { PlayCircle, PauseCircle, Eraser, Download, Search as SearchIcon } from 'lucide-react';
+import { PlayCircle, PauseCircle, Eraser, Download, History, Search as SearchIcon } from 'lucide-react';
 import { nodesApi } from '@/api/nodes';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { LogEntry, LogStreamMessage } from '@/types';
@@ -43,6 +43,7 @@ const LogViewer: React.FC<LogViewerProps> = ({
   
   const logContainerRef = useRef<HTMLDivElement>(null);
   const isSubscribedRef = useRef(false);
+  const [paging, setPaging] = useState(false);
 
   // LOGVIEWER_TIMESTAMP_V3 - 根据用户时区设置格式化时间戳
   const formatTimestamp = useCallback((timestamp: string) => {
@@ -130,6 +131,46 @@ const LogViewer: React.FC<LogViewerProps> = ({
     }
   };
 
+  // 加载更早的历史日志(分页)- 调用 supervisor.readProcessStdoutLog/StderrLog
+  const loadOlderLogs = async () => {
+    if (logEntries.length === 0) return;
+    setPaging(true);
+    try {
+      const stdout = await nodesApi.readProcessLogs(nodeName, processName, 'stdout', 0, 20000);
+      if (!stdout.data) {
+        message.info(t.logViewer.noMoreLogs || 'No more logs');
+        return;
+      }
+      const rawLines = stdout.data.split('\n').map((l: string) => l.trim()).filter((l: string) => l.length > 0);
+      const existingKeys = new Set((logEntries as any[]).map(e => `${e.timestamp}|${e.message}`));
+      const before: any[] = [];
+      for (const line of rawLines) {
+        const key = `-1|${line}`;
+        if (!existingKeys.has(key)) {
+          before.push({
+            timestamp: new Date().toISOString(),
+            level: 'INFO',
+            message: line,
+            source: 'stdout',
+            process_name: processName,
+            node_name: nodeName,
+          });
+          existingKeys.add(key);
+        }
+      }
+      if (before.length === 0) {
+        message.info(t.logViewer.noMoreLogs || 'No more logs');
+      } else {
+        setLogEntries(prev => [...before, ...prev]);
+      }
+    } catch (error: any) {
+      console.error('Failed to load older logs:', error);
+      message.error(error.response?.data?.message || 'Failed to load older logs');
+    } finally {
+      setPaging(false);
+    }
+  };
+
   const subscribeToLogs = () => {
     if (isConnected && !isSubscribedRef.current) {
       send({
@@ -165,8 +206,14 @@ const LogViewer: React.FC<LogViewerProps> = ({
     }
   };
 
-  const clearLogs = () => {
-    setLogEntries([]);
+  const clearServerLogs = async () => {
+    try {
+      await nodesApi.clearProcessLogs(nodeName, processName);
+      setLogEntries([]);
+      message.success(t.logViewer.clearSuccess || 'Process logs cleared');
+    } catch (error: any) {
+      message.error(error.response?.data?.message || 'Failed to clear logs');
+    }
   };
 
   const exportLogs = () => {
@@ -247,6 +294,14 @@ const LogViewer: React.FC<LogViewerProps> = ({
       onCancel={onClose}
       width={1000}
       footer={[
+        <Button
+          key="load-older"
+          onClick={loadOlderLogs}
+          loading={paging}
+          icon={<History size={14} strokeWidth={1.7} />}
+        >
+          {t.logViewer.loadOlder !== undefined ? t.logViewer.loadOlder : 'Load older'}
+        </Button>,
         <Button key="close" onClick={onClose}>
           {t.common.close}
         </Button>,
@@ -299,7 +354,15 @@ const LogViewer: React.FC<LogViewerProps> = ({
 
           <Button
             icon={<Eraser size={14} strokeWidth={1.7} />}
-            onClick={clearLogs}
+            onClick={() => {
+              Modal.confirm({
+                title: t.logViewer.clearConfirmTitle || 'Clear process logs',
+                content: t.logViewer.clearConfirmContent || 'This will permanently delete the stdout/stderr log files of this process on the node. Continue?',
+                okText: t.common.confirm,
+                cancelText: t.common.cancel,
+                onOk: clearServerLogs,
+              });
+            }}
             size="small"
           >
             {t.logViewer.clear}

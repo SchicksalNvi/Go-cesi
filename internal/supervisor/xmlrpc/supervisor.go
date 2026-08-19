@@ -548,6 +548,234 @@ func (s *SupervisorClient) TailProcessStderrLog(name string, offset, length int)
 	return formattedLog, nextOffset, overflow, nil
 }
 
+// ReadProcessStdoutLog 按偏移量读取进程 stdout 日志 - 符合官方 API 规范
+// 官方签名: readProcessStdoutLog(name, offset, length) -> [string bytes, int offset, bool overflow]
+// 与 tail 不同,read 从指定 offset 读取,用于历史日志分页加载。
+func (s *SupervisorClient) ReadProcessStdoutLog(name string, offset, length int) (string, int, bool, error) {
+	result, err := s.client.Call("supervisor.readProcessStdoutLog", []interface{}{name, offset, length})
+	if err != nil {
+		return "", 0, false, fmt.Errorf("failed to read stdout log: %w", err)
+	}
+
+	xmlResponse, ok := result.(string)
+	if !ok {
+		return "", 0, false, fmt.Errorf("unexpected response type: %T", result)
+	}
+
+	if strings.Contains(xmlResponse, "<fault>") {
+		return "", 0, false, fmt.Errorf("XML-RPC fault in response")
+	}
+
+	logData, nextOffset, overflow := parseTailLogResponse(xmlResponse)
+	formattedLog := formatLogContent(logData)
+	return formattedLog, nextOffset, overflow, nil
+}
+
+// ReadProcessStderrLog 按偏移量读取进程 stderr 日志 - 符合官方 API 规范
+// 官方签名: readProcessStderrLog(name, offset, length) -> [string bytes, int offset, bool overflow]
+func (s *SupervisorClient) ReadProcessStderrLog(name string, offset, length int) (string, int, bool, error) {
+	result, err := s.client.Call("supervisor.readProcessStderrLog", []interface{}{name, offset, length})
+	if err != nil {
+		return "", 0, false, fmt.Errorf("failed to read stderr log: %w", err)
+	}
+
+	xmlResponse, ok := result.(string)
+	if !ok {
+		return "", 0, false, fmt.Errorf("unexpected response type: %T", result)
+	}
+
+	if strings.Contains(xmlResponse, "<fault>") {
+		return "", 0, false, fmt.Errorf("XML-RPC fault in response")
+	}
+
+	logData, nextOffset, overflow := parseTailLogResponse(xmlResponse)
+	formattedLog := formatLogContent(logData)
+	return formattedLog, nextOffset, overflow, nil
+}
+
+// ClearProcessLogs 清空并重开指定进程的 stdout/stderr 日志 - 符合官方 API 规范
+// 官方签名: clearProcessLogs(name) -> boolean
+func (s *SupervisorClient) ClearProcessLogs(name string) error {
+	result, err := s.client.Call("supervisor.clearProcessLogs", []interface{}{name})
+	if err != nil {
+		return fmt.Errorf("failed to clear process logs: %w", err)
+	}
+
+	xmlResponse, ok := result.(string)
+	if !ok {
+		return fmt.Errorf("unexpected response type: %T", result)
+	}
+
+	if faultCode, faultString, isFault := parseFaultResponse(xmlResponse); isFault {
+		return fmt.Errorf("supervisor fault [%d]: %s", faultCode, faultString)
+	}
+
+	success, err := parseBooleanResponse(xmlResponse)
+	if err != nil {
+		return fmt.Errorf("failed to parse response for clearProcessLogs %s: %v", name, err)
+	}
+	if !success {
+		return fmt.Errorf("supervisor rejected clearProcessLogs request for process %s", name)
+	}
+	return nil
+}
+
+// ProcessConfigInfo 符合官方 getAllConfigInfo 返回的进程配置信息结构
+type ProcessConfigInfo struct {
+	Name             string `json:"name"`
+	Group            string `json:"group"`
+	Command          string `json:"command"`
+	StdoutLogfile    string `json:"stdout_logfile"`
+	StderrLogfile    string `json:"stderr_logfile"`
+	Directory        string `json:"directory"`
+	Priority         int    `json:"priority"`
+	Autostart        bool   `json:"autostart"`
+	Autorestart      bool   `json:"autorestart"`
+	Startsecs        int    `json:"startsecs"`
+	Startretries     int    `json:"startretries"`
+	Stopsignal       string `json:"stopsignal"`
+	Stopwaitsecs     int    `json:"stopwaitsecs"`
+	Killasgroup      bool   `json:"killasgroup"`
+	Exitcodes        string `json:"exitcodes"`
+	Environment      string `json:"environment"`
+	ProcessName      string `json:"process_name"`
+}
+
+// GetAllConfigInfo 获取所有进程配置信息 - 符合官方 API 规范
+// 官方签名: getAllConfigInfo() -> array of process config info structs
+func (s *SupervisorClient) GetAllConfigInfo() ([]ProcessConfigInfo, error) {
+	result, err := s.client.Call("supervisor.getAllConfigInfo", nil)
+	if err != nil {
+		return nil, fmt.Errorf("XML-RPC call failed: %v", err)
+	}
+
+	xmlResponse, ok := result.(string)
+	if !ok {
+		return nil, fmt.Errorf("unexpected response type: %T", result)
+	}
+
+	if strings.Contains(xmlResponse, "<fault>") {
+		return nil, fmt.Errorf("XML-RPC fault in response")
+	}
+
+	// 复用 extractStructBlocks 解析 struct 数组
+	structs := extractStructBlocks(xmlResponse)
+	var configs []ProcessConfigInfo
+	for _, structXML := range structs {
+		cfg := ProcessConfigInfo{
+			Name:          extractFieldValue(structXML, "name"),
+			Group:         extractFieldValue(structXML, "group"),
+			Command:       extractFieldValue(structXML, "command"),
+			StdoutLogfile: extractFieldValue(structXML, "stdout_logfile"),
+			StderrLogfile: extractFieldValue(structXML, "stderr_logfile"),
+			Directory:     extractFieldValue(structXML, "directory"),
+			Stopsignal:    extractFieldValue(structXML, "stopsignal"),
+			Environment:   extractFieldValue(structXML, "environment"),
+		}
+		cfg.ProcessName = cfg.Name
+
+		if v := extractFieldValue(structXML, "priority"); v != "" {
+			cfg.Priority, _ = strconv.Atoi(v)
+		}
+		if v := extractFieldValue(structXML, "startsecs"); v != "" {
+			cfg.Startsecs, _ = strconv.Atoi(v)
+		}
+		if v := extractFieldValue(structXML, "startretries"); v != "" {
+			cfg.Startretries, _ = strconv.Atoi(v)
+		}
+		if v := extractFieldValue(structXML, "stopwaitsecs"); v != "" {
+			cfg.Stopwaitsecs, _ = strconv.Atoi(v)
+		}
+		// 布尔字段:autostart/autorestart/killasgroup
+		cfg.Autostart = extractFieldValue(structXML, "autostart") == "true"
+		cfg.Autorestart = extractFieldValue(structXML, "autorestart") == "true" ||
+			extractFieldValue(structXML, "autorestart") == "unexpected"
+		cfg.Killasgroup = extractFieldValue(structXML, "killasgroup") == "true"
+
+		if cfg.Name != "" {
+			configs = append(configs, cfg)
+		}
+	}
+	return configs, nil
+}
+
+// ReloadResult 符合官方 reloadConfig 返回的结构
+type ReloadResult struct {
+	Added   []string `json:"added"`
+	Changed []string `json:"changed"`
+	Removed []string `json:"removed"`
+}
+
+// ReloadConfig 重载配置 - 符合官方 API 规范
+// 官方签名: reloadConfig() -> struct { added: array, changed: array, removed: array }
+func (s *SupervisorClient) ReloadConfig() (*ReloadResult, error) {
+	result, err := s.client.Call("supervisor.reloadConfig", nil)
+	if err != nil {
+		return nil, fmt.Errorf("XML-RPC call failed: %v", err)
+	}
+
+	xmlResponse, ok := result.(string)
+	if !ok {
+		return nil, fmt.Errorf("unexpected response type: %T", result)
+	}
+
+	if strings.Contains(xmlResponse, "<fault>") {
+		return nil, fmt.Errorf("XML-RPC fault in response")
+	}
+
+	// reloadConfig 返回单个 struct,内含 added/changed/removed 三个字符串数组
+	// 格式: <struct><member><name>added</name>...<member><name>changed</name>...<member><name>removed</name>...
+	res := &ReloadResult{}
+	res.Added = extractStringArrayField(xmlResponse, "added")
+	res.Changed = extractStringArrayField(xmlResponse, "changed")
+	res.Removed = extractStringArrayField(xmlResponse, "removed")
+	return res, nil
+}
+
+// extractStringArrayField 从 XML-RPC struct 响应中提取字符串数组字段
+// 兼容 reloadConfig 的 added/changed/removed 数组结构。
+func extractStringArrayField(xmlResponse, fieldName string) []string {
+	var out []string
+	nameTag := "<name>" + fieldName + "</name>"
+	idx := strings.Index(xmlResponse, nameTag)
+	if idx == -1 {
+		return out
+	}
+	// 从 nameTag 后找 <array><data>...
+	remaining := xmlResponse[idx+len(nameTag):]
+	dataStart := strings.Index(remaining, "<array><data>")
+	if dataStart == -1 {
+		// 兼容 <array>\n<data> 形式
+		dataStart = strings.Index(remaining, "<array>")
+		if dataStart == -1 {
+			return out
+		}
+		innerData := strings.Index(remaining[dataStart:], "<data>")
+		if innerData == -1 {
+			return out
+		}
+		dataStart += innerData
+	}
+	dataStart += len("<array><data>")
+
+	// 收集所有 <value><string>xxx</string></value>
+	cur := remaining[dataStart:]
+	for {
+		strStart := strings.Index(cur, "<value><string>")
+		if strStart == -1 {
+			break
+		}
+		strStart += len("<value><string>")
+		strEnd := strings.Index(cur[strStart:], "</string></value>")
+		if strEnd == -1 {
+			break
+		}
+		out = append(out, cur[strStart:strStart+strEnd])
+		cur = cur[strStart+strEnd+len("</string></value>"):]
+	}
+	return out
+}
+
 // parseTailLogResponse 解析 tailProcessLog 的响应
 // Supervisor API 返回格式: [string bytes, int offset, bool overflow]
 // XML-RPC 数组格式: <array><data><value>...</value><value>...</value><value>...</value></data></array>

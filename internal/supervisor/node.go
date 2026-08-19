@@ -362,6 +362,64 @@ func (n *Node) GetProcessLogSize(name string) (int, error) {
 	return fileSize, nil
 }
 
+// ReadProcessLogs 按偏移量读取进程历史日志(分页用)- 符合官方 API 规范
+// logType 为 "stdout" 或 "stderr";offset 为起始读取偏移,length 为最大字节数。
+// 返回 (内容, 下一次偏移, 是否溢出, error),供历史日志分页加载。
+func (n *Node) ReadProcessLogs(name, logType string, offset, length int) (string, int, bool, error) {
+	n.mu.RLock()
+	connected := n.IsConnected
+	n.mu.RUnlock()
+
+	if !connected {
+		return "", 0, false, ErrNodeNotConnected
+	}
+
+	if logType == "stderr" {
+		return n.client.ReadProcessStderrLog(name, offset, length)
+	}
+	return n.client.ReadProcessStdoutLog(name, offset, length)
+}
+
+// ClearProcessLogs 清空并重开指定进程的 stdout/stderr 日志 - 符合官方 API 规范
+func (n *Node) ClearProcessLogs(name string) error {
+	n.mu.RLock()
+	connected := n.IsConnected
+	n.mu.RUnlock()
+
+	if !connected {
+		return ErrNodeNotConnected
+	}
+
+	return n.client.ClearProcessLogs(name)
+}
+
+// GetAllConfigInfo 获取节点上所有进程配置信息 - 符合官方 API 规范
+func (n *Node) GetAllConfigInfo() ([]xmlrpc.ProcessConfigInfo, error) {
+	n.mu.RLock()
+	connected := n.IsConnected
+	n.mu.RUnlock()
+
+	if !connected {
+		return nil, ErrNodeNotConnected
+	}
+
+	return n.client.GetAllConfigInfo()
+}
+
+// ReloadConfig 重载节点上的 supervisord 配置 - 符合官方 API 规范
+// 返回 added/changed/removed 三组进程组名。
+func (n *Node) ReloadConfig() (*xmlrpc.ReloadResult, error) {
+	n.mu.RLock()
+	connected := n.IsConnected
+	n.mu.RUnlock()
+
+	if !connected {
+		return nil, ErrNodeNotConnected
+	}
+
+	return n.client.ReloadConfig()
+}
+
 // GetProcessLogStreamTail 从文件末尾读取最新日志
 func (n *Node) GetProcessLogStreamTail(name string, maxLines int) (*LogStream, error) {
 	n.mu.RLock()

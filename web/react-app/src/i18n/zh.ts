@@ -527,6 +527,11 @@ export const zh: TranslationKeys = {
     noLogEntries: '未找到日志条目',
     showingEntries: '显示 {filtered} / {total} 条',
     connectedReceiving: '已连接 - 正在接收实时更新',
+    loadOlder: '加载更早',
+    noMoreLogs: '没有更多日志',
+    clearSuccess: '日志已清空',
+    clearConfirmTitle: '清空进程日志',
+    clearConfirmContent: '这将永久删除该进程在节点上的 stdout/stderr 日志文件。是否继续?',
   },
 
   // Environment Detail

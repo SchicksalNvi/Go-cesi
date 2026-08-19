@@ -525,6 +525,11 @@ export const en = {
     noLogEntries: 'No log entries found',
     showingEntries: 'Showing {filtered} of {total} entries',
     connectedReceiving: 'Connected - receiving real-time updates',
+    loadOlder: 'Load older',
+    noMoreLogs: 'No more logs',
+    clearSuccess: 'Logs cleared',
+    clearConfirmTitle: 'Clear process logs',
+    clearConfirmContent: 'This will permanently delete the stdout/stderr log files of this process on the node. Continue?',
   },
 
   // Environment Detail

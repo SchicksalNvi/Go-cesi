@@ -452,6 +452,146 @@ func (api *NodesAPI) GetProcessLogStream(c *gin.Context) {
 	})
 }
 
+// ReadProcessLogs 按偏移量分页读取进程历史日志 - 符合官方 API 规范
+// GET /:node_name/processes/:process_name/logs/page?log_type=stdout&offset=0&length=5000
+func (api *NodesAPI) ReadProcessLogs(c *gin.Context) {
+	nodeName := c.Param("node_name")
+	processName := c.Param("process_name")
+
+	validator := validation.NewValidator()
+	validator.ValidateNodeName("node_name", nodeName)
+	validator.ValidateProcessName("process_name", processName)
+	validator.ValidateNoSQLInjection("node_name", nodeName)
+	validator.ValidateNoSQLInjection("process_name", processName)
+	if validator.HasErrors() {
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "输入验证失败", "errors": validator.Errors()})
+		return
+	}
+
+	if _, ok := api.authorizeNodeAccess(c, "log"); !ok {
+		return
+	}
+
+	logType := c.DefaultQuery("log_type", "stdout")
+	if logType != "stdout" && logType != "stderr" {
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "log_type must be stdout or stderr"})
+		return
+	}
+	offset := 0
+	length := 5000
+	if v := c.Query("offset"); v != "" {
+		if o, err := strconv.Atoi(v); err == nil && o >= 0 {
+			offset = o
+		}
+	}
+	if v := c.Query("length"); v != "" {
+		if l, err := strconv.Atoi(v); err == nil && l > 0 && l <= 100000 {
+			length = l
+		}
+	}
+
+	content, nextOffset, overflow, err := api.service.ReadProcessLogs(nodeName, processName, logType, offset, length)
+	if err != nil {
+		handleAppError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":   "success",
+		"log_type": logType,
+		"data":     content,
+		"offset":   nextOffset,
+		"overflow": overflow,
+	})
+}
+
+// ClearProcessLogs 清空并重开指定进程的 stdout/stderr 日志 - 符合官方 API 规范
+// POST /:node_name/processes/:process_name/logs/clear
+func (api *NodesAPI) ClearProcessLogs(c *gin.Context) {
+	nodeName := c.Param("node_name")
+	processName := c.Param("process_name")
+
+	validator := validation.NewValidator()
+	validator.ValidateNodeName("node_name", nodeName)
+	validator.ValidateProcessName("process_name", processName)
+	validator.ValidateNoSQLInjection("node_name", nodeName)
+	validator.ValidateNoSQLInjection("process_name", processName)
+	if validator.HasErrors() {
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "输入验证失败", "errors": validator.Errors()})
+		return
+	}
+
+	if _, ok := api.authorizeNodeAccess(c, "execute"); !ok {
+		return
+	}
+
+	if err := api.service.ClearProcessLogs(nodeName, processName); err != nil {
+		handleAppError(c, err)
+		return
+	}
+
+	if api.activityLogService != nil {
+		msg := fmt.Sprintf("Cleared logs for process %s on node %s", processName, nodeName)
+		api.activityLogService.LogWithContext(c, "INFO", "clear_process_logs", "process", processName, msg, nil)
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "success"})
+}
+
+// GetAllConfigInfo 获取节点所有进程配置信息 - 符合官方 API 规范
+// GET /:node_name/processes/configs
+func (api *NodesAPI) GetAllConfigInfo(c *gin.Context) {
+	nodeName := c.Param("node_name")
+
+	validator := validation.NewValidator()
+	validator.ValidateNodeName("node_name", nodeName)
+	validator.ValidateNoSQLInjection("node_name", nodeName)
+	if validator.HasErrors() {
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "输入验证失败", "errors": validator.Errors()})
+		return
+	}
+
+	if _, ok := api.authorizeNodeAccess(c, "read"); !ok {
+		return
+	}
+
+	configs, err := api.service.GetAllConfigInfo(nodeName)
+	if err != nil {
+		handleAppError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "success", "data": configs})
+}
+
+// ReloadConfig 重载节点 supervisord 配置 - 符合官方 API 规范
+// POST /:node_name/processes/reload-config
+func (api *NodesAPI) ReloadConfig(c *gin.Context) {
+	nodeName := c.Param("node_name")
+
+	validator := validation.NewValidator()
+	validator.ValidateNodeName("node_name", nodeName)
+	validator.ValidateNoSQLInjection("node_name", nodeName)
+	if validator.HasErrors() {
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "输入验证失败", "errors": validator.Errors()})
+		return
+	}
+
+	if _, ok := api.authorizeNodeAccess(c, "read"); !ok {
+		return
+	}
+
+	result, err := api.service.ReloadConfig(nodeName)
+	if err != nil {
+		handleAppError(c, err)
+		return
+	}
+
+	if api.activityLogService != nil {
+		msg := fmt.Sprintf("Reloaded supervisord config on node %s", nodeName)
+		api.activityLogService.LogWithContext(c, "INFO", "reload_config", "node", nodeName, msg, nil)
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "success", "data": result})
+}
+
 // StartAllProcesses starts all processes on a specific node
 func (api *NodesAPI) StartAllProcesses(c *gin.Context) {
 	nodeName := c.Param("node_name")
