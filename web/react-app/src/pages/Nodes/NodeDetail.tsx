@@ -7,6 +7,7 @@ import {
   Button,
   Space,
   Descriptions,
+  Modal,
   Tabs,
   message,
   Popconfirm,
@@ -22,13 +23,14 @@ import {
   Square,
   RefreshCw,
   FileText,
+  Settings2,
   Info,
   CheckCircle2,
   XCircle,
   Pencil,
   Save,
 } from 'lucide-react';
-import { nodesApi } from '@/api/nodes';
+import { nodesApi, ProcessConfigInfo } from '@/api/nodes';
 import { Node, Process } from '@/types';
 import LogViewer from '@/components/LogViewer';
 
@@ -44,6 +46,9 @@ const NodeDetail: React.FC = () => {
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
   const [logViewerVisible, setLogViewerVisible] = useState(false);
   const [selectedProcess, setSelectedProcess] = useState<Process | null>(null);
+  const [configVisible, setConfigVisible] = useState(false);
+  const [configLoading, setConfigLoading] = useState(false);
+  const [configData, setConfigData] = useState<ProcessConfigInfo | null>(null);
   const [pageSize, setPageSize] = useState(10);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState('');
@@ -124,6 +129,31 @@ const NodeDetail: React.FC = () => {
   const handleViewLogs = (process: Process) => {
     setSelectedProcess(process);
     setLogViewerVisible(true);
+  };
+
+  // 查看进程配置:拉取节点所有配置,按 name/process_name/group:name 匹配当前进程
+  const handleViewConfig = async (process: Process) => {
+    const nodeNameParam = nodeName || '';
+    setSelectedProcess(process);
+    setConfigVisible(true);
+    setConfigLoading(true);
+    setConfigData(null);
+    try {
+      const res = await nodesApi.getAllConfigInfo(nodeNameParam);
+      const configs = res.data || [];
+      const found = configs.find(
+        (c) => c.name === process.name || c.process_name === process.name || c.name === `${process.group}:${process.name}`
+      ) || null;
+      if (!found) {
+        message.info(t.processInstance.configNotFound || '未找到该进程的配置信息');
+      }
+      setConfigData(found);
+    } catch (error: any) {
+      console.error('Failed to load process config:', error);
+      message.error(error.response?.data?.message || '加载进程配置失败');
+    } finally {
+      setConfigLoading(false);
+    }
   };
 
   const handleEditStart = () => {
@@ -250,6 +280,13 @@ const NodeDetail: React.FC = () => {
             onClick={() => handleViewLogs(record)}
           >
             {t.logs.title}
+          </Button>
+          <Button
+            size="small"
+            icon={<Settings2 size={14} strokeWidth={1.7} />}
+            onClick={() => handleViewConfig(record)}
+          >
+            {t.processInstance.viewConfig}
           </Button>
         </Space>
       ),
@@ -422,6 +459,53 @@ const NodeDetail: React.FC = () => {
           processName={selectedProcess.name}
         />
       )}
+
+      {/* Process Config Modal */}
+      <Modal
+        open={configVisible}
+        onCancel={() => {
+          setConfigVisible(false);
+          setSelectedProcess(null);
+        }}
+        title={`${selectedProcess?.name || ''} - ${t.processInstance.node}: ${nodeName || ''}`}
+        width={640}
+        footer={null}
+      >
+        {configLoading ? (
+          <div style={{ textAlign: 'center', padding: 40 }}>
+            <Spin />
+          </div>
+        ) : configData ? (
+          <Descriptions column={1} bordered size="small">
+            <Descriptions.Item label="Name">{configData.name}</Descriptions.Item>
+            <Descriptions.Item label="Group">{configData.group}</Descriptions.Item>
+            <Descriptions.Item label="Command">
+              <code style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{configData.command}</code>
+            </Descriptions.Item>
+            <Descriptions.Item label="Directory">{configData.directory || '-'}</Descriptions.Item>
+            <Descriptions.Item label="stdout_logfile"><code style={{ fontFamily: 'var(--font-mono)' }}>{configData.stdout_logfile || '-'}</code></Descriptions.Item>
+            <Descriptions.Item label="stderr_logfile"><code style={{ fontFamily: 'var(--font-mono)' }}>{configData.stderr_logfile || '-'}</code></Descriptions.Item>
+            <Descriptions.Item label="Autostart">{configData.autostart ? 'Yes' : 'No'}</Descriptions.Item>
+            <Descriptions.Item label="Autorestart">{configData.autorestart ? 'Yes' : 'No'}</Descriptions.Item>
+            <Descriptions.Item label="Priority">{String(configData.priority ?? '-')}</Descriptions.Item>
+            <Descriptions.Item label="Startsecs">{String(configData.startsecs ?? '-')}</Descriptions.Item>
+            <Descriptions.Item label="Startretries">{String(configData.startretries ?? '-')}</Descriptions.Item>
+            <Descriptions.Item label="Stopsignal">{configData.stopsignal || '-'}</Descriptions.Item>
+            <Descriptions.Item label="Stopwaitsecs">{String(configData.stopwaitsecs ?? '-')}</Descriptions.Item>
+            <Descriptions.Item label="Kill as group">{configData.killasgroup ? 'Yes' : 'No'}</Descriptions.Item>
+            <Descriptions.Item label="Exitcodes">{configData.exitcodes || '-'}</Descriptions.Item>
+            <Descriptions.Item label="Environment">
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, whiteSpace: 'pre-wrap' }}>
+                {configData.environment || '-'}
+              </span>
+            </Descriptions.Item>
+          </Descriptions>
+        ) : (
+          <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-low)' }}>
+            {t.processInstance.configNotFound || '未找到该进程的配置信息'}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };
