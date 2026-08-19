@@ -555,6 +555,8 @@ export const zh: TranslationKeys = {
     node: '节点',
     state: '状态',
     group: '组',
+    viewConfig: '配置',
+    configNotFound: '未找到该进程的配置信息',
   },
 
   // Nodes Toolbar

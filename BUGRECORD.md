@@ -15,7 +15,7 @@
 |---------|------|------|------|---------|
 | High    | 14   | 0    | 14   | 0       |
 | Medium  | 40   | 0    | 39   | 1       |
-| Low     | 18   | 0    | 18   | 0       |
+| Low     | 19   | 0    | 19   | 0       |
 
 ---
 
@@ -485,6 +485,16 @@
 - **影响**: WebSocket 开启时进程状态频繁刷新,用户在搜索/查看结果时页面反复闪 loading + 列表跳变,搜索与操作体验割裂。
 - **修复记录**: 2026-08-19 · `loadProcesses` 仅当当前无数据(`processes.length === 0`,即首次加载)时 `setLoading(true)`;后续刷新保持列表显示不闪全屏 Spin。数据返回后在函数内立即按当前 `searchText` 重新过滤 `filteredProcesses`(与既有 `useEffect([searchText,processes])` 一致),确保搜索结果不丢失。`npx tsc --noEmit`(0 错误)、`npm run build` 通过,构建产物已服务。
 
+### L-20 ✅ 进程配置查看按钮(位于实例列表"日志"按钮旁)
+- **位置**: `web/react-app/src/pages/Processes/ProcessInstanceList.tsx`、`web/react-app/src/api/nodes.ts`(前端)、`web/react-app/src/i18n/*.ts`
+- **需求**: 在进程实例列表的操作列、"日志管理(日志)"按钮旁新增一个"配置"按钮,点击模态框直接查看该进程的完整配置,便于排查启动参数/日志路径/自动重启策略等。
+- **实现**: 
+  - 前端按钮: 操作列在"日志"按钮后新增 `<Settings2>` 图标"配置"按钮。
+  - 数据: 点击后调 `getAllConfigInfo(nodeName)`(接 `supervisor.getAllConfigInfo`,前轮 M-39 已实现),按 `name`/`process_name`/`group:name` 匹配当前进程,取对应 `ProcessConfigInfo`。
+  - 展示: antd `Modal` + `Descriptions`(column=1,bordered)展示 Name/Group/Command/Directory/stdout_logfile/stderr_logfile/Autostart/Autorestart/Priority/Startsecs/Startretries/Stopsignal/Stopwaitsecs/Kill as group/Exitcodes/Environment;未匹配到时提示"未找到该进程的配置信息"。
+  - 新增 `ProcessConfigInfo` 前端类型与 i18n 键(`viewConfig`/`configNotFound`,en/zh)。
+- **验证**: `npx tsc --noEmit`(0 错误)、`npm run build` 通过;最新构建 `index-B8SkpTPQ.js` 已服务,配置按钮文案与 `ProcessInstanceList-bcSeSviZ.js` chunk 均确认进入产物。
+
 ### L-13 ✅ WebSocket 节点 ACL 快照在节点权限撤销后不会刷新
 - **位置**: `internal/websocket/hub.go:1042-1059`(HandleWebSocket 中构建 `allowedNodeIDs` 快照)
 - **问题**: 第八轮复审发现。`HandleWebSocket` 在握手时查询 `NodeAccess` 构建 `allowedNodeIDs` 快照,该快照仅创建一次,永久缓存于 `Client` 结构。管理员通过 `UpdateUserNodeAccess` 撤销某节点的读取权限后,已建立 WebSocket 连接的 `allowedNodeIDs` 不被刷新,该客户端仍能持续通过实时推送(z.nodes_update、log_stream 等)收到被撤销节点的数据。REST API 不受影响(每请求重载用户)。
@@ -614,7 +624,7 @@
 
 ---
 
-_最后更新:2026-08-19 · 前端视觉重构(L-16)、日志查看器白底白字(L-17)、日志级别误判(M-36)、活动日志操作列加宽(L-18)、自动刷新打断操作(M-37)、XML-RPC wait 同步性(M-38)、新增官方 XML-RPC 方法(M-39)。共记录 72 项:0 TODO、71 DONE、1 WONTFIX(High 14、Medium 40、Low 18)。_
+_最后更新:2026-08-19 · 前端视觉重构(L-16)、日志查看器白底白字(L-17)、日志级别误判(M-36)、活动日志操作列加宽(L-18)、自动刷新打断操作(M-37)、XML-RPC wait 同步性(M-38)、新增官方 XML-RPC 方法(M-39)、进程配置查看按钮(L-20)。共记录 73 项:0 TODO、72 DONE、1 WONTFIX(High 14、Medium 40、Low 19)。_
 
 _本轮验证状态:`go build ./...` 通过、`go vet ./...` 通过;`npx tsc --noEmit` 通过(web/react-app)、`npm run build` 通过;全量审计无表情符号、无 `@ant-design/icons` 残留;运行中服务 `curl` 验证登录/数据端点 200,新 CSP 头(含字体放行)已生效。tools/ 已添加 `//go:build ignore` 标签,`go build/vet/test ./...` 不再因此失败。_
 

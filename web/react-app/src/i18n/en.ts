@@ -553,6 +553,8 @@ export const en = {
     node: 'Node',
     state: 'State',
     group: 'Group',
+    viewConfig: 'Config',
+    configNotFound: 'No configuration found for this process',
   },
 
   // Nodes Toolbar

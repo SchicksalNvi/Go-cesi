@@ -40,6 +40,27 @@ interface LogStreamResponse {
   };
 }
 
+// supervisor.getAllConfigInfo 返回的进程配置信息
+export interface ProcessConfigInfo {
+  name: string;
+  group: string;
+  command: string;
+  stdout_logfile: string;
+  stderr_logfile: string;
+  directory: string;
+  priority: number;
+  autostart: boolean;
+  autorestart: boolean;
+  startsecs: number;
+  startretries: number;
+  stopsignal: string;
+  stopwaitsecs: number;
+  killasgroup: boolean;
+  exitcodes: string;
+  environment: string;
+  process_name: string;
+}
+
 export const nodesApi = {
   // Get all nodes
   getNodes: () => apiClient.get<NodesResponse>('/nodes'),
@@ -117,7 +138,7 @@ export const nodesApi = {
 
   // 获取节点所有进程配置信息 (getAllConfigInfo)
   getAllConfigInfo: (nodeName: string) =>
-    apiClient.get(`/nodes/${nodeName}/processes/configs`),
+    apiClient.get<{ status: string; data: ProcessConfigInfo[] }>(`/nodes/${nodeName}/processes/configs`),
 
   // 重载节点 supervisord 配置 (reloadConfig)
   reloadConfig: (nodeName: string) =>
