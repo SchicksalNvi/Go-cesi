@@ -14,7 +14,7 @@
 | 严重程度 | 总数 | TODO | DONE | WONTFIX |
 |---------|------|------|------|---------|
 | High    | 14   | 0    | 14   | 0       |
-| Medium  | 38   | 0    | 37   | 1       |
+| Medium  | 39   | 0    | 38   | 1       |
 | Low     | 18   | 0    | 18   | 0       |
 
 ---
@@ -338,6 +338,13 @@
 - **修复建议**: 改为词元边界匹配,不再用无边界子串。
 - **修复记录**: 2026-08-19 · `extractLogLevel` 重写为**词元边界匹配**:级别仅当其前后为合法边界(空白/括号/等号/管道/行首尾 等)时才算命中;前边界额外排除点号(`.`)、冒号(`:`)、连字符(`-`)、斜杠(`/`)(避免类名/方法/路径如 `BasicErrorController.errorHtml`、`report:ERROR`、`/error` 误报),后边界排除左括号(`(`)与点号(`.`)(避免 `error(` 方法调用误报);支持 `Level=ERROR` 键值写法;`WARN` 归一化为 `WARNING`。新增 `isLogLevelBoundary`/`isLogLevelAfterBoundary` 辅助函数。`go build ./...` 通过;新增 `internal/supervisor/log_level_test.go`(`TestExtractLogLevel` 13 例 + `TestParseLogEntriesLevels` 端到端 5 行混合日志),均通过。
 
+### M-38 ✅ XML-RPC startProcess/stopProcess 未显式传 wait,慢操作被 HTTP 5s 超时误报
+- **位置**: `internal/supervisor/xmlrpc/supervisor.go:309-341/344-391`(`StartProcess`/`StopProcess`)、`internal/supervisor/xmlrpc/client.go:43-46`(HTTP 超时)
+- **问题**: 对照 supervisord 官方 API(https://supervisord.org/api.html)复审发现。`startProcess(name, wait=True)` / `stopProcess(name, wait=True)` 官方签名默认 `wait=True`(同步:阻塞到进程完全启动/停止才返回,结果真实准确)。本项目调用时**未显式传 wait 参数**(省略即默认 True 同步),而 XML-RPC HTTP 客户端超时仅为 **5s** —— 慢启动/优雅停止的进程在同步等待期间超过 5s,HTTP 层先超时误报失败,但 supervisord 后台仍继续执行,导致返回结果与真实状态不一致(操作实际成功却报失败/触发无谓重试)。
+- **影响**: 进程启动/停止的准确性受损:慢操作被误判失败;上层 timeoutManager(30s)与 circuitBreaker 因 HTTP 5s 先超时无法正确反馈真实结果。
+- **修复建议**: 显式传 `wait=true` 保持官方同步语义(保证返回结果准确),并将 HTTP 客户端超时提升到大于 `SingleOperationTimeout`(30s)。
+- **修复记录**: 2026-08-19 · `StartProcess`/`StopProcess` 调用改为 `[]interface{}{name, true}`(显式 wait=true,官方同步语义,supervisord 阻塞到进程完全启动/停止才返回,结果真实准确);`client.go` HTTP 客户端超时 5s→35s(大于 SingleOperationTimeout 30s,由上层超时管理优先负责,避免 HTTP 层误截断)。`encodeValue` 布尔编码已用测试验证(`true`→`<boolean>1</boolean>`)。批量操作维持逐进程遍历(不强制要求进程编组,不使用 startProcessGroup/stopProcessGroup)。`go build ./...`、`go test ./internal/supervisor/...`、`go vet` 全部通过;服务已重建重启(PID 93338)。
+
 ### M-37 ✅ 自动刷新固定间隔,打断用户正在进行的弹窗/按钮操作
 - **位置**: `web/react-app/src/hooks/useAutoRefresh.ts`(全量)
 - **问题**: 运行时实测发现。`useAutoRefresh` 用固定 `setInterval` 定时触发刷新回调(如进程页每 N 秒拉取 `/api/processes/aggregated`,看日志时控制台持续刷请求),且完全**不感知用户交互**——即使正在日志查看弹窗内阅读/操作、点击批量操作等,定时刷新仍照常发起,数据更新引发重渲染,打断/干扰正在进行的手上操作。
@@ -594,7 +601,7 @@
 
 ---
 
-_最后更新:2026-08-19 · 前端视觉重构(L-16)、日志查看器白底白字(L-17)、日志级别误判(M-36)、活动日志操作列加宽(L-18)、自动刷新打断操作(M-37)。共记录 70 项:0 TODO、69 DONE、1 WONTFIX(High 14、Medium 38、Low 18)。_
+_最后更新:2026-08-19 · 前端视觉重构(L-16)、日志查看器白底白字(L-17)、日志级别误判(M-36)、活动日志操作列加宽(L-18)、自动刷新打断操作(M-37)。共记录 71 项:0 TODO、70 DONE、1 WONTFIX(High 14、Medium 39、Low 18)。_
 
 _本轮验证状态:`go build ./...` 通过、`go vet ./...` 通过;`npx tsc --noEmit` 通过(web/react-app)、`npm run build` 通过;全量审计无表情符号、无 `@ant-design/icons` 残留;运行中服务 `curl` 验证登录/数据端点 200,新 CSP 头(含字体放行)已生效。tools/ 已添加 `//go:build ignore` 标签,`go build/vet/test ./...` 不再因此失败。_
 

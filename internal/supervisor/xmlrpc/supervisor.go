@@ -307,8 +307,13 @@ func formatUptime(seconds int64) string {
 }
 
 // StartProcess 启动进程
+// 官方签名:supervisor.startProcess(name, wait=True) -> boolean
+// 显式传 wait=true(同步):supervisord 阻塞到进程完全启动(进入 RUNNING/SRC 等)
+// 才返回,因此返回结果是真实准确的。HTTP 客户端超时已在 client.go 提升到
+// 35s(大于 SingleOperationTimeout 30s),由上层 timeoutManager 优先负责超时,
+// 避免慢启动进程在 HTTP 层被 5s 软超时误截断。
 func (s *SupervisorClient) StartProcess(name string) error {
-	result, err := s.client.Call("supervisor.startProcess", []interface{}{name})
+	result, err := s.client.Call("supervisor.startProcess", []interface{}{name, true})
 	if err != nil {
 		return err
 	}
@@ -354,7 +359,7 @@ func (s *SupervisorClient) StopProcess(name string) error {
 		return nil // 进程已经停止或退出，无需再停止
 	}
 	
-	result, err := s.client.Call("supervisor.stopProcess", []interface{}{name})
+	result, err := s.client.Call("supervisor.stopProcess", []interface{}{name, true})
 	if err != nil {
 		// 如果错误信息表明进程已经停止，也返回成功
 		if strings.Contains(err.Error(), "NOT_RUNNING") || strings.Contains(err.Error(), "not running") {

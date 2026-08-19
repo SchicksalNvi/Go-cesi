@@ -41,7 +41,11 @@ func NewClient(host string, port int, username, password string) (*Client, error
 		username: username,
 		password: password,
 		client: &http.Client{
-			Timeout: 5 * time.Second,
+			// 35s:须大于上层 TimeoutManager.SingleOperationTimeout(30s)。
+			// startProcess/stopProcess 同步 wait=true 时 supervisord 会阻塞到操作完成
+			// (慢启动/优雅停止可能耗时数秒~数十秒);若此超时过小,会在操作尚未完成时
+			// 返回 HTTP 超时,误判操作失败,而实际后台仍在执行。
+			Timeout: 35 * time.Second,
 		},
 	}, nil
 }
