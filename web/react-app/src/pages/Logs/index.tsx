@@ -227,9 +227,13 @@ const Logs: React.FC = () => {
       title: t.common.operation,
       dataIndex: 'action',
       key: 'action',
-      width: 150,
+      width: 230,
       render: (action: string) => (
-        <Tag color={getActionColor(action)}>
+        <Tag
+          color={getActionColor(action)}
+          style={{ whiteSpace: 'nowrap', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}
+          title={action.replace(/_/g, ' ').toUpperCase()}
+        >
           {action.replace(/_/g, ' ').toUpperCase()}
         </Tag>
       ),

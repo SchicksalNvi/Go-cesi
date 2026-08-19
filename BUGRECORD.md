@@ -15,7 +15,7 @@
 |---------|------|------|------|---------|
 | High    | 14   | 0    | 14   | 0       |
 | Medium  | 37   | 0    | 36   | 1       |
-| Low     | 16   | 0    | 16   | 0       |
+| Low     | 17   | 0    | 17   | 0       |
 
 ---
 
@@ -443,6 +443,12 @@
 - **修复记录**: 2026-08-18 · 将日志容器改为暗色终端风格:背景 `#080a12`、边框 `var(--hairline-strong)`、容器显式 `color: #d6def5`(等宽字体 `var(--font-mono)`);消息文本显式 `#d6def5`,时间戳 `#5d6886`(弱化但仍可读);行间加细分隔线 + hover 高亮(提升长日志可读性)。移除多余的浅色残留。空态文案用 `var(--text-low)`。
 - **验证**: `npx tsc --noEmit`(0 错误)、`npm run build`(成功);确认修复已进 `LogViewer-*.js` 构建 chunk(含 `080a12`/`d6def5`)、该 chunk 与主入口均被服务端 200 服务、日志流接口 `curl` 鉴权后 200。浏览器硬刷新后日志在暗色背景下清晰可读。
 
+### L-18 ✅ 活动日志操作列宽度不足,长操作类型溢出到相邻列
+- **位置**: `web/react-app/src/pages/Logs/index.tsx:227-236`(活动日志表格"操作"列)
+- **问题**: 运行时实测发现。活动日志表格的"操作"列固定宽度 150px,当操作类型为 `UPDATE SETTINGS BATCH` 这类长文本(前端渲染为 `UPDATE SETTINGS BATCH`)时,Tag 文本宽度超出列宽,显示被挤到相邻列。
+- **影响**: 长操作类型在表格中视觉错乱,溢出污染旁边"来源/消息"列。
+- **修复记录**: 2026-08-19 · "操作"列宽度由 150 加宽至 230;`Tag` 增加 `whiteSpace:'nowrap'` 防止换行/溢出、`maxWidth:'100%'`+`textOverflow:'ellipsis'` 超长省略,并加 `title` 悬浮提示完整文本。`npx tsc --noEmit`(0 错误)、`npm run build` 通过,构建产物已被服务端 200 服务。
+
 ### L-13 ✅ WebSocket 节点 ACL 快照在节点权限撤销后不会刷新
 - **位置**: `internal/websocket/hub.go:1042-1059`(HandleWebSocket 中构建 `allowedNodeIDs` 快照)
 - **问题**: 第八轮复审发现。`HandleWebSocket` 在握手时查询 `NodeAccess` 构建 `allowedNodeIDs` 快照,该快照仅创建一次,永久缓存于 `Client` 结构。管理员通过 `UpdateUserNodeAccess` 撤销某节点的读取权限后,已建立 WebSocket 连接的 `allowedNodeIDs` 不被刷新,该客户端仍能持续通过实时推送(z.nodes_update、log_stream 等)收到被撤销节点的数据。REST API 不受影响(每请求重载用户)。
@@ -572,7 +578,7 @@
 
 ---
 
-_最后更新:2026-08-19 · 前端视觉重构(L-16)、日志查看器白底白字(L-17)、日志级别误判(M-36)。共记录 67 项:0 TODO、66 DONE、1 WONTFIX(High 14、Medium 37、Low 16)。_
+_最后更新:2026-08-19 · 前端视觉重构(L-16)、日志查看器白底白字(L-17)、日志级别误判(M-36)、活动日志操作列加宽(L-18)。共记录 68 项:0 TODO、67 DONE、1 WONTFIX(High 14、Medium 37、Low 17)。_
 
 _本轮验证状态:`go build ./...` 通过、`go vet ./...` 通过;`npx tsc --noEmit` 通过(web/react-app)、`npm run build` 通过;全量审计无表情符号、无 `@ant-design/icons` 残留;运行中服务 `curl` 验证登录/数据端点 200,新 CSP 头(含字体放行)已生效。tools/ 已添加 `//go:build ignore` 标签,`go build/vet/test ./...` 不再因此失败。_
 
