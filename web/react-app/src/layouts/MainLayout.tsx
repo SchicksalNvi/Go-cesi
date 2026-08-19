@@ -202,13 +202,25 @@ export default function MainLayout() {
               justifyContent: collapsed ? 'center' : 'flex-start',
               gap: 8,
               padding: collapsed ? 0 : '0 12px',
+              lineHeight: '34px',
             }}
           >
             {collapsed
               ? <PanelLeftOpen size={17} strokeWidth={1.7} />
               : <>
                   <PanelLeftClose size={17} strokeWidth={1.7} />
-                  <span style={{ fontSize: 12, letterSpacing: '0.05em', fontFamily: 'var(--font-mono)', textTransform: 'uppercase' }}>
+                  <span
+                    style={{
+                      fontSize: 12,
+                      letterSpacing: '0.05em',
+                      fontFamily: 'var(--font-mono)',
+                      textTransform: 'uppercase',
+                      lineHeight: '17px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      height: 17,
+                    }}
+                  >
                     {language === 'en' ? 'Collapse' : '折叠'}
                   </span>
                 </>}
