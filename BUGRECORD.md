@@ -14,7 +14,7 @@
 | 严重程度 | 总数 | TODO | DONE | WONTFIX |
 |---------|------|------|------|---------|
 | High    | 14   | 0    | 14   | 0       |
-| Medium  | 40   | 0    | 39   | 1       |
+| Medium  | 41   | 0    | 40   | 1       |
 | Low     | 19   | 0    | 19   | 0       |
 
 ---
@@ -358,6 +358,14 @@
   - 前端: `nodes.ts` 新增 4 个 API;`LogViewer.tsx` 新增"加载更早(Load older)"分页按钮(调 readProcessLogs,去重并入现有条目)、清除按钮改为调 `clearProcessLogs`(带确认弹窗);新增 i18n 键(en/zh)。
 - **验证**: `go build ./...`、`go test ./internal/supervisor/... ./internal/api/...` 全通过;`npx tsc --noEmit` 0 错误、`npm run build` 成功;新路由经 curl 验证返回 401(已挂鉴权,与既有路由一致);修复了部署时发现的历史问题——`./superview.sh stop` 因 PID 文件与实际监听进程不一致无法停掉旧二进制(旧 PID 12380 持续占用 8081 服务旧代码),手动 `pkill` 后干净重启(PID 147265)新路由才生效。
 
+### M-40 ✅ ponytail review:日志流 offset 无边界校验 + 部署脚本 PID 失配兜底
+- **位置**: `internal/api/nodes.go:390-394`(`GetProcessLogStream` offset 解析)、`superview.sh`(`stop()`)
+- **问题**: 系统 review 发现两个真实问题:
+  1. `GetProcessLogStream` 的 `offset` 查询参数无边界校验:前端约定 `-1` 从末尾读取,但任意值(含负数、超大值)都直接透传 `TailProcessStdoutLog`,虽然 XML-RPC 客户端有 10MB 响应限制兜底,异常请求仍会产生无意义的大读取。
+  2. `superview.sh` 的 `stop()` 只杀 PID 文件记录的进程。PID 文件失配时(记录进程已死/被替换),真正占用 8081 端口的旧实例永远杀不掉 → 新二进制 bind 失败 → 部署事故(曾实际发生,M-39 部署时旧 PID 12380 卡端口)。
+- **影响**: 1) 异常参数拉取;2) 部署可靠性(端口被残留旧进程占用)。
+- **修复记录**: 2026-09-01 · 1) offset 解析加 `o >= 0` 边界,非法值(负数/非数字)回落默认 `-1`;2) `stop()` 改为:先杀 PID 文件进程(带等待/强杀),再扫描 `/proc/[0-9]*/exe` 匹配应用二进制,兜底 `kill -9` 所有残留实例并清理 PID 文件。`bash -n` 语法通过;`go build ./internal/api/`、`go test ./internal/api/...`(46.9s)通过;已重新部署(PID 80739,page 200)。
+
 ### M-37 ✅ 自动刷新固定间隔,打断用户正在进行的弹窗/按钮操作
 - **位置**: `web/react-app/src/hooks/useAutoRefresh.ts`(全量)
 - **问题**: 运行时实测发现。`useAutoRefresh` 用固定 `setInterval` 定时触发刷新回调(如进程页每 N 秒拉取 `/api/processes/aggregated`,看日志时控制台持续刷请求),且完全**不感知用户交互**——即使正在日志查看弹窗内阅读/操作、点击批量操作等,定时刷新仍照常发起,数据更新引发重渲染,打断/干扰正在进行的手上操作。
@@ -624,7 +632,7 @@
 
 ---
 
-_最后更新:2026-08-19 · 前端视觉重构(L-16)、日志查看器白底白字(L-17)、日志级别误判(M-36)、活动日志操作列加宽(L-18)、自动刷新打断操作(M-37)、XML-RPC wait 同步性(M-38)、新增官方 XML-RPC 方法(M-39)、进程配置查看按钮(L-20)。共记录 73 项:0 TODO、72 DONE、1 WONTFIX(High 14、Medium 40、Low 19)。_
+_最后更新:2026-08-19 · 前端视觉重构(L-16)、日志查看器白底白字(L-17)、日志级别误判(M-36)、活动日志操作列加宽(L-18)、自动刷新打断操作(M-37)、XML-RPC wait 同步性(M-38)、新增官方 XML-RPC 方法(M-39)、进程配置查看按钮(L-20)、日志 offset 校验与部署脚本兜底(M-40)。共记录 74 项:0 TODO、73 DONE、1 WONTFIX(High 14、Medium 41、Low 19)。_
 
 _本轮验证状态:`go build ./...` 通过、`go vet ./...` 通过;`npx tsc --noEmit` 通过(web/react-app)、`npm run build` 通过;全量审计无表情符号、无 `@ant-design/icons` 残留;运行中服务 `curl` 验证登录/数据端点 200,新 CSP 头(含字体放行)已生效。tools/ 已添加 `//go:build ignore` 标签,`go build/vet/test ./...` 不再因此失败。_
 

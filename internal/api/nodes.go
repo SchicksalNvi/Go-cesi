@@ -388,7 +388,7 @@ func (api *NodesAPI) GetProcessLogStream(c *gin.Context) {
 	maxLines := 100
 
 	if offsetStr := c.Query("offset"); offsetStr != "" {
-		if o, err := strconv.Atoi(offsetStr); err == nil {
+		if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
 			offset = o
 		}
 	}

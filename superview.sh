@@ -57,25 +57,36 @@ start() {
 }
 
 stop() {
-    if ! is_running; then
-        log_warn "Not running"
-        rm -f "$PID_FILE"
-        return 0
-    fi
-
+    # 先杀掉 PID 文件记录的进程(若存在)
     local pid
     pid=$(get_pid)
-    log_info "Stopping (PID: $pid)..."
-    kill "$pid"
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        log_info "Stopping (PID: $pid)..."
+        kill "$pid"
+        for _ in {1..10}; do
+            kill -0 "$pid" 2>/dev/null || { rm -f "$PID_FILE"; log_info "Stopped"; return 0; }
+            sleep 1
+        done
+        kill -9 "$pid" 2>/dev/null || true
+    fi
 
-    for _ in {1..10}; do
-        kill -0 "$pid" 2>/dev/null || { rm -f "$PID_FILE"; log_info "Stopped"; return 0; }
-        sleep 1
+    # 兜底:PID 文件失配时(记录进程已死/错误),扫描并杀掉所有残留实例,
+    # 防止旧进程占用端口导致新二进制 bind 失败(曾发生的部署事故)
+    local target
+    target=$(readlink -f "$(pwd)/$APP_NAME")
+    local leftovers=""
+    for d in /proc/[0-9]*; do
+        local exe
+        exe=$(readlink -f "$d/exe" 2>/dev/null || true)
+        [ "$exe" = "$target" ] && leftovers="$leftovers ${d##*/}"
     done
+    for p in $leftovers; do
+        kill -9 "$p" 2>/dev/null || true
+    done
+    [ -n "$leftovers" ] && log_info "Killed stray instance(s):$leftovers"
 
-    kill -9 "$pid" 2>/dev/null || true
     rm -f "$PID_FILE"
-    log_info "Force stopped"
+    log_info "Stopped"
 }
 
 restart() {
