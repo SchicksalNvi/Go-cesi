@@ -621,39 +621,6 @@ func (s *ProcessEnhancedService) UseTemplate(id uint) error {
 	return s.db.Save(&template).Error
 }
 
-// CreateProcessBackup 创建进程配置备份
-func (s *ProcessEnhancedService) CreateProcessBackup(backup *models.ProcessBackup) error {
-	// 获取下一个版本号
-	var maxVersion int
-	s.db.Model(&models.ProcessBackup{}).
-		Where("process_name = ? AND node_id = ?", backup.ProcessName, backup.NodeID).
-		Select("COALESCE(MAX(version), 0)").Scan(&maxVersion)
-
-	backup.Version = maxVersion + 1
-	return s.db.Create(backup).Error
-}
-
-// GetProcessBackups 获取进程配置备份列表
-func (s *ProcessEnhancedService) GetProcessBackups(processName string, nodeID uint) ([]models.ProcessBackup, error) {
-	var backups []models.ProcessBackup
-	err := s.db.Where("process_name = ? AND node_id = ?", processName, nodeID).
-		Preload("User").Order("version DESC").Find(&backups).Error
-	return backups, err
-}
-
-// RestoreProcessBackup 恢复进程配置备份
-func (s *ProcessEnhancedService) RestoreProcessBackup(id uint) (*models.ProcessBackup, error) {
-	var backup models.ProcessBackup
-	err := s.db.First(&backup, id).Error
-	if err != nil {
-		return nil, err
-	}
-
-	// 这里应该实现实际的配置恢复逻辑
-	// 为了演示，只返回备份信息
-	return &backup, nil
-}
-
 // RecordProcessMetrics 记录进程性能指标
 func (s *ProcessEnhancedService) RecordProcessMetrics(metrics *models.ProcessMetrics) error {
 	return s.db.Create(metrics).Error

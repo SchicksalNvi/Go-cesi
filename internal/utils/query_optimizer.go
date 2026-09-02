@@ -119,32 +119,6 @@ func (qo *QueryOptimizer) OptimizeConfigQuery(query *gorm.DB, filters map[string
 	return query.Order("created_at DESC")
 }
 
-// OptimizeBackupQuery 优化备份查询
-func (qo *QueryOptimizer) OptimizeBackupQuery(query *gorm.DB, filters map[string]interface{}) *gorm.DB {
-	// 使用索引友好的查询顺序
-	if backupType, ok := filters["backup_type"]; ok {
-		query = query.Where("backup_type = ?", backupType)
-	}
-
-	if status, ok := filters["status"]; ok {
-		query = query.Where("status = ?", status)
-	}
-
-	if createdBy, ok := filters["created_by"]; ok {
-		query = query.Where("created_by = ?", createdBy)
-	}
-
-	if createdAt, ok := filters["created_at"]; ok {
-		query = query.Where("created_at >= ?", createdAt)
-	}
-
-	// 排除已删除的记录
-	query = query.Where("deleted_at IS NULL")
-
-	// 默认按创建时间倒序排列
-	return query.Order("created_at DESC")
-}
-
 // OptimizeActivityLogQuery 优化活动日志查询
 func (qo *QueryOptimizer) OptimizeActivityLogQuery(query *gorm.DB, filters map[string]interface{}) *gorm.DB {
 	// 使用索引友好的查询顺序
@@ -242,8 +216,6 @@ func (qo *QueryOptimizer) OptimizeQuery(query *gorm.DB, queryType string, filter
 		return qo.OptimizeLogQuery(query, filters)
 	case "config":
 		return qo.OptimizeConfigQuery(query, filters)
-	case "backup":
-		return qo.OptimizeBackupQuery(query, filters)
 	case "activity_log":
 		return qo.OptimizeActivityLogQuery(query, filters)
 	default:

@@ -111,21 +111,6 @@ type ProcessTemplate struct {
 	User User `json:"user,omitempty" gorm:"foreignKey:CreatedBy;references:ID"`
 }
 
-// ProcessBackup 进程配置备份
-type ProcessBackup struct {
-	ID          uint      `json:"id" gorm:"primaryKey"`
-	ProcessName string    `json:"process_name" gorm:"not null;size:100"`
-	NodeID      uint      `json:"node_id" gorm:"not null"`
-	Config      string    `json:"config" gorm:"type:text"` // JSON格式的配置备份
-	Version     int       `json:"version" gorm:"not null;default:1"`
-	Comment     string    `json:"comment" gorm:"size:500"`
-	CreatedBy   string    `json:"created_by" gorm:"size:50;index"`
-	CreatedAt   time.Time `json:"created_at"`
-
-	// 关联
-	User User `json:"user,omitempty" gorm:"foreignKey:CreatedBy;references:ID"`
-}
-
 // ProcessMetrics 进程性能指标
 type ProcessMetrics struct {
 	ID            uint      `json:"id" gorm:"primaryKey"`
@@ -267,11 +252,6 @@ func (pt *ProcessTemplate) IncrementUsage() {
 // IsPublicTemplate 检查是否为公共模板
 func (pt *ProcessTemplate) IsPublicTemplate() bool {
 	return pt.IsPublic
-}
-
-// GetLatestVersion 获取最新版本号
-func (pb *ProcessBackup) GetLatestVersion() int {
-	return pb.Version
 }
 
 // GetCPUUsage 获取CPU使用率

@@ -632,7 +632,7 @@
 
 ---
 
-_最后更新:2026-08-19 · 前端视觉重构(L-16)、日志查看器白底白字(L-17)、日志级别误判(M-36)、活动日志操作列加宽(L-18)、自动刷新打断操作(M-37)、XML-RPC wait 同步性(M-38)、新增官方 XML-RPC 方法(M-39)、进程配置查看按钮(L-20)、日志 offset 校验与部署脚本兜底(M-40)。共记录 74 项:0 TODO、73 DONE、1 WONTFIX(High 14、Medium 41、Low 19)。_
+_最后更新:2026-08-19 · 前端视觉重构(L-16)、日志查看器白底白字(L-17)、日志级别误判(M-36)、活动日志操作列加宽(L-18)、自动刷新打断操作(M-37)、XML-RPC wait 同步性(M-38)、新增官方 XML-RPC 方法(M-39)、进程配置查看按钮(L-20)、日志 offset 校验与部署脚本兜底(M-40)。共记录 74 项:0 TODO、73 DONE、1 WONTFIX(High 14、Medium 41、Low 19)。_;2026-09-02 彻底删除三套备份功能(data_management/configuration/process_enhanced)后端代码路由及模型,备份能力收敛为导出 all/仅配置(见前一轮前端收拢)。_
 
 _本轮验证状态:`go build ./...` 通过、`go vet ./...` 通过;`npx tsc --noEmit` 通过(web/react-app)、`npm run build` 通过;全量审计无表情符号、无 `@ant-design/icons` 残留;运行中服务 `curl` 验证登录/数据端点 200,新 CSP 头(含字体放行)已生效。tools/ 已添加 `//go:build ignore` 标签,`go build/vet/test ./...` 不再因此失败。_
 

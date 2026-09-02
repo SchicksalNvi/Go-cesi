@@ -250,11 +250,6 @@ func SetupRoutesWithConfig(r *gin.Engine, db *gorm.DB, service *supervisor.Super
 			processEnhancedGroup.DELETE("/templates/:id", permissionChecker.RequirePermission(models.PermissionProcessDelete), processEnhancedHandler.DeleteProcessTemplate)
 			processEnhancedGroup.POST("/templates/:id/use", permissionChecker.RequirePermission(models.PermissionProcessWrite), processEnhancedHandler.UseTemplate)
 
-			// Process configuration backup management
-			processEnhancedGroup.POST("/backups", permissionChecker.RequirePermission(models.PermissionProcessWrite), processEnhancedHandler.CreateProcessBackup)
-			processEnhancedGroup.GET("/backups", permissionChecker.RequirePermission(models.PermissionProcessRead), processEnhancedHandler.GetProcessBackups)
-			processEnhancedGroup.POST("/backups/:id/restore", permissionChecker.RequirePermission(models.PermissionProcessWrite), processEnhancedHandler.RestoreProcessBackup)
-
 			// Process performance metrics
 			processEnhancedGroup.POST("/metrics", permissionChecker.RequirePermission(models.PermissionProcessWrite), processEnhancedHandler.RecordProcessMetrics)
 			processEnhancedGroup.GET("/metrics", permissionChecker.RequirePermission(models.PermissionProcessRead), processEnhancedHandler.GetProcessMetrics)
@@ -280,13 +275,6 @@ func SetupRoutesWithConfig(r *gin.Engine, db *gorm.DB, service *supervisor.Super
 			configurationGroup.GET("/env-vars/:id", permissionChecker.RequirePermission(models.PermissionEnvVarRead), configurationHandler.GetEnvironmentVariable)
 			configurationGroup.PUT("/env-vars/:id", permissionChecker.RequirePermission(models.PermissionEnvVarWrite), configurationHandler.UpdateEnvironmentVariable)
 			configurationGroup.DELETE("/env-vars/:id", permissionChecker.RequirePermission(models.PermissionEnvVarDelete), configurationHandler.DeleteEnvironmentVariable)
-
-			// 配置备份管理
-			configurationGroup.GET("/backups", permissionChecker.RequirePermission(models.PermissionConfigRead), configurationHandler.GetBackups)
-			configurationGroup.POST("/backups", permissionChecker.RequirePermission(models.PermissionConfigWrite), configurationHandler.CreateBackup)
-			configurationGroup.GET("/backups/:id", permissionChecker.RequirePermission(models.PermissionConfigRead), configurationHandler.GetBackup)
-			configurationGroup.POST("/backups/:id/restore", permissionChecker.RequirePermission(models.PermissionConfigWrite), configurationHandler.RestoreBackup)
-			configurationGroup.DELETE("/backups/:id", permissionChecker.RequirePermission(models.PermissionConfigDelete), configurationHandler.DeleteBackup)
 
 			// 配置导入导出
 			configurationGroup.GET("/export", permissionChecker.RequirePermission(models.PermissionConfigRead), configurationHandler.ExportConfigurations)
@@ -359,13 +347,6 @@ func SetupRoutesWithConfig(r *gin.Engine, db *gorm.DB, service *supervisor.Super
 			dataManagementGroup.GET("/exports", dataManagementHandler.GetExportRecords)
 			dataManagementGroup.GET("/exports/:id/download", dataManagementHandler.DownloadExportFile)
 			dataManagementGroup.DELETE("/exports/:id", dataManagementHandler.DeleteExportRecord)
-
-			// 数据备份
-			dataManagementGroup.POST("/backup", dataManagementHandler.CreateBackup)
-			dataManagementGroup.POST("/backups", dataManagementHandler.CreateBackup)
-			dataManagementGroup.GET("/backups", dataManagementHandler.GetBackupRecords)
-			dataManagementGroup.GET("/backups/:id/download", dataManagementHandler.DownloadBackupFile)
-			dataManagementGroup.DELETE("/backups/:id", dataManagementHandler.DeleteBackupRecord)
 
 			// 数据导入
 			dataManagementGroup.POST("/import", dataManagementHandler.ImportData)

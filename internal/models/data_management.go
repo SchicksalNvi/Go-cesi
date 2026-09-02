@@ -14,25 +14,6 @@ func generateID() string {
 	return fmt.Sprintf("%x", b)
 }
 
-// BackupRecord 备份记录模型
-type BackupRecord struct {
-	ID          string         `gorm:"primaryKey" json:"id"`
-	Name        string         `gorm:"size:100;not null" json:"name"`
-	Description string         `gorm:"size:500" json:"description"`
-	FilePath    string         `gorm:"size:500;not null" json:"file_path"`
-	FileSize    int64          `json:"file_size"`
-	BackupType  string         `gorm:"size:50;not null" json:"backup_type"`     // full, incremental, config_only
-	Status      string         `gorm:"size:50;default:'pending'" json:"status"` // pending, running, completed, failed
-	ErrorMsg    string         `gorm:"size:1000" json:"error_msg"`
-	CreatedBy   string         `gorm:"size:50;not null" json:"created_by"`
-	CreatedAt   time.Time      `json:"created_at"`
-	CompletedAt *time.Time     `json:"completed_at"`
-	DeletedAt   gorm.DeletedAt `gorm:"index:idx_backup_record_deleted_at" json:"-"`
-
-	// 关联关系
-	Creator User `gorm:"foreignKey:CreatedBy;references:ID" json:"creator,omitempty"`
-}
-
 // DataExportRecord 数据导出记录模型
 type DataExportRecord struct {
 	ID          string         `gorm:"primaryKey" json:"id"`
@@ -57,7 +38,7 @@ type DataExportRecord struct {
 type DataImportRecord struct {
 	ID            string         `gorm:"primaryKey" json:"id"`
 	Name          string         `gorm:"size:100;not null" json:"name"`
-	ImportType    string         `gorm:"size:50;not null" json:"import_type"` // users, configs, full_backup
+	ImportType    string         `gorm:"size:50;not null" json:"import_type"` // configs
 	SourceFile    string         `gorm:"size:500;not null" json:"source_file"`
 	FileSize      int64          `json:"file_size"`
 	TotalRecords  int            `json:"total_records"`
@@ -78,7 +59,7 @@ type DataImportRecord struct {
 // SystemSettings 系统设置模型
 type SystemSettings struct {
 	ID          string         `gorm:"primaryKey" json:"id"`
-	Category    string         `gorm:"size:50;default:'general'" json:"category"` // theme, language, email, backup, security
+	Category    string         `gorm:"size:50;default:'general'" json:"category"` // theme, language, email, security
 	Key         string         `gorm:"size:100;not null;uniqueIndex:idx_category_key" json:"key"`
 	Value       string         `gorm:"type:text" json:"value"`
 	ValueType   string         `gorm:"size:20;default:'string'" json:"value_type"` // string, number, boolean, json
@@ -183,11 +164,6 @@ type WebhookLog struct {
 
 // 常量定义
 const (
-	// 备份类型
-	BackupTypeFull        = "full"
-	BackupTypeIncremental = "incremental"
-	BackupTypeConfigOnly  = "config_only"
-
 	// 导出类型
 	ExportTypeUsers     = "users"
 	ExportTypeLogs      = "logs"
@@ -203,7 +179,6 @@ const (
 	// 导入类型
 	ImportTypeUsers      = "users"
 	ImportTypeConfigs    = "configs"
-	ImportTypeFullBackup = "full_backup"
 
 	// 状态
 	StatusPending   = "pending"
@@ -216,7 +191,6 @@ const (
 	SettingsCategoryTheme    = "theme"
 	SettingsCategoryLanguage = "language"
 	SettingsCategoryEmail    = "email"
-	SettingsCategoryBackup   = "backup"
 	SettingsCategorySecurity = "security"
 
 	// 主题
@@ -237,5 +211,4 @@ const (
 	WebhookEventUserLogin      = "user.login"
 	WebhookEventUserLogout     = "user.logout"
 	WebhookEventSystemAlert    = "system.alert"
-	WebhookEventBackupComplete = "backup.complete"
 )

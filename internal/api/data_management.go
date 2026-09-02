@@ -438,13 +438,6 @@ func saveImportUpload(file *multipart.FileHeader, uploadDir, importType string, 
 	return filePath, written, nil
 }
 
-// CreateBackupRequest 创建备份请求
-type CreateBackupRequest struct {
-	Name        string `json:"name" binding:"required,max=100"`
-	Description string `json:"description" binding:"max=500"`
-	BackupType  string `json:"backup_type" binding:"required,oneof=full config_only"`
-}
-
 // ExportData 导出数据
 // @Summary 导出数据
 // @Description 导出指定类型的数据为指定格式
@@ -633,160 +626,6 @@ func (api *DataManagementAPI) DeleteExportRecord(c *gin.Context) {
 	c.JSON(http.StatusOK, SuccessResponse{Message: "Export record deleted successfully"})
 }
 
-// CreateBackup 创建备份
-// @Summary 创建备份
-// @Description 创建系统数据备份
-// @Tags 数据管理
-// @Accept json
-// @Produce json
-// @Param request body CreateBackupRequest true "备份请求"
-// @Success 200 {object} models.BackupRecord
-// @Failure 400 {object} ErrorResponse
-// @Failure 401 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
-// @Router /api/data-management/backups [post]
-func (api *DataManagementAPI) CreateBackup(c *gin.Context) {
-	var req CreateBackupRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
-		return
-	}
-
-	// 获取当前用户ID
-	userID, exists := getUserIDString(c)
-	if !exists {
-		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "User not authenticated"})
-		return
-	}
-
-	// 创建备份
-	backupRecord, err := api.dataService.CreateBackup(req.BackupType, req.Name, req.Description, userID)
-	if err != nil {
-		status := http.StatusInternalServerError
-		if errors.Is(err, services.ErrDataJobCapacity) {
-			status = http.StatusServiceUnavailable
-		}
-		c.JSON(status, ErrorResponse{Error: err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, backupRecord)
-
-	if api.activityLogService != nil {
-		msg := fmt.Sprintf("Created backup: %s (%s)", req.Name, req.BackupType)
-		api.activityLogService.LogWithContext(c, "INFO", "create_backup", "data_management", req.Name, msg, nil)
-	}
-}
-
-// GetBackupRecords 获取备份记录列表
-// @Summary 获取备份记录列表
-// @Description 获取系统备份记录列表，支持分页
-// @Tags 数据管理
-// @Accept json
-// @Produce json
-// @Param page query int false "页码" default(1)
-// @Param page_size query int false "每页数量" default(20)
-// @Success 200 {object} PaginatedResponse{data=[]models.BackupRecord}
-// @Failure 401 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
-// @Router /api/data-management/backups [get]
-func (api *DataManagementAPI) GetBackupRecords(c *gin.Context) {
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-
-	// 验证分页参数
-	validator := validation.NewValidator()
-	pageStr := c.DefaultQuery("page", "1")
-	pageSizeStr := c.DefaultQuery("page_size", "20")
-	pageNum, limitNum := validator.ValidatePagination(pageStr, pageSizeStr)
-	if validator.HasErrors() {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "Invalid pagination parameters"})
-		return
-	}
-	page = pageNum
-	pageSize = limitNum
-
-	records, total, err := api.dataService.GetBackupRecords(page, pageSize)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, PaginatedResponse{
-		Data:       records,
-		Total:      total,
-		Page:       page,
-		PageSize:   pageSize,
-		TotalPages: (total + int64(pageSize) - 1) / int64(pageSize),
-	})
-}
-
-// DownloadBackupFile 下载备份文件
-// @Summary 下载备份文件
-// @Description 下载指定的备份文件
-// @Tags 数据管理
-// @Param id path string true "备份记录ID"
-// @Success 200 {file} file
-// @Failure 404 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
-// @Router /api/data-management/backups/{id}/download [get]
-func (api *DataManagementAPI) DownloadBackupFile(c *gin.Context) {
-	id := c.Param("id")
-
-	// 获取备份记录
-	var record models.BackupRecord
-	if err := api.dataService.DB.First(&record, "id = ?", id).Error; err != nil {
-		c.JSON(http.StatusNotFound, ErrorResponse{Error: "Backup record not found"})
-		return
-	}
-
-	// 检查文件是否存在
-	if record.FilePath == "" || record.Status != models.StatusCompleted {
-		c.JSON(http.StatusNotFound, ErrorResponse{Error: "Backup file not available"})
-		return
-	}
-
-	if _, err := os.Stat(record.FilePath); os.IsNotExist(err) {
-		c.JSON(http.StatusNotFound, ErrorResponse{Error: "Backup file not found"})
-		return
-	}
-
-	// 设置下载响应头
-	fileName := filepath.Base(record.FilePath)
-	c.Header("Content-Description", "File Transfer")
-	c.Header("Content-Transfer-Encoding", "binary")
-	c.Header("Content-Disposition", "attachment; filename="+fileName)
-	c.Header("Content-Type", "application/octet-stream")
-
-	// 发送文件
-	c.File(record.FilePath)
-}
-
-// DeleteBackupRecord 删除备份记录
-// @Summary 删除备份记录
-// @Description 删除指定的备份记录和文件
-// @Tags 数据管理
-// @Param id path string true "备份记录ID"
-// @Success 200 {object} SuccessResponse
-// @Failure 404 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
-// @Router /api/data-management/backups/{id} [delete]
-func (api *DataManagementAPI) DeleteBackupRecord(c *gin.Context) {
-	id := c.Param("id")
-
-	if err := api.dataService.DeleteBackupRecord(id); err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
-		return
-	}
-
-	if api.activityLogService != nil {
-		msg := fmt.Sprintf("Deleted backup record: %s", id)
-		api.activityLogService.LogWithContext(c, "WARNING", "delete_backup", "data_management", id, msg, nil)
-	}
-
-	c.JSON(http.StatusOK, SuccessResponse{Message: "Backup record deleted successfully"})
-}
-
 // ImportData 导入数据
 // @Summary 导入数据
 // @Description 从文件导入数据到系统
@@ -941,12 +780,6 @@ func RegisterDataManagementRoutes(router *gin.RouterGroup) {
 	router.GET("/exports", api.GetExportRecords)
 	router.GET("/exports/:id/download", api.DownloadExportFile)
 	router.DELETE("/exports/:id", api.DeleteExportRecord)
-
-	// 数据备份相关路由
-	router.POST("/backups", api.CreateBackup)
-	router.GET("/backups", api.GetBackupRecords)
-	router.GET("/backups/:id/download", api.DownloadBackupFile)
-	router.DELETE("/backups/:id", api.DeleteBackupRecord)
 
 	// 数据导入相关路由
 	router.GET("/imports", api.GetImportRecords)

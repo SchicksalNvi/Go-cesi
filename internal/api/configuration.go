@@ -500,200 +500,6 @@ func (h *ConfigurationHandler) DeleteEnvironmentVariable(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Environment variable deleted successfully"})
 }
 
-// CreateBackup 创建配置备份
-func (h *ConfigurationHandler) CreateBackup(c *gin.Context) {
-	userID, exists := getUserIDString(c)
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	var req struct {
-		Name        string  `json:"name" binding:"required"`
-		Description string  `json:"description"`
-		BackupType  string  `json:"backup_type" binding:"required"`
-		Scope       string  `json:"scope" binding:"required"`
-		NodeID      *uint   `json:"node_id"`
-		UserID      *string `json:"user_id"`
-		Version     string  `json:"version"`
-		IsAutomatic bool    `json:"is_automatic"`
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	backup := &models.ConfigurationBackup{
-		Name:        req.Name,
-		Description: req.Description,
-		BackupType:  req.BackupType,
-		Scope:       req.Scope,
-		NodeID:      req.NodeID,
-		UserID:      req.UserID,
-		Version:     req.Version,
-		IsAutomatic: req.IsAutomatic,
-		CreatedBy:   userID,
-	}
-
-	err := h.service.CreateBackup(backup)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusCreated, backup)
-
-	if h.activityLogService != nil {
-		msg := fmt.Sprintf("Created configuration backup: %s", backup.Name)
-		h.activityLogService.LogWithContext(c, "INFO", "create_backup", "config_backup", backup.Name, msg, nil)
-	}
-}
-
-// GetBackups 获取备份列表
-func (h *ConfigurationHandler) GetBackups(c *gin.Context) {
-	// 分页参数
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-
-	// 过滤条件
-	filters := make(map[string]interface{})
-	if backupType := c.Query("backup_type"); backupType != "" {
-		filters["backup_type"] = backupType
-	}
-	if scope := c.Query("scope"); scope != "" {
-		filters["scope"] = scope
-	}
-	if nodeID := c.Query("node_id"); nodeID != "" {
-		if id, err := strconv.ParseUint(nodeID, 10, 32); err == nil {
-			filters["node_id"] = uint(id)
-		}
-	}
-	if userID := c.Query("user_id"); userID != "" {
-		filters["user_id"] = userID
-	}
-	if isAutomatic := c.Query("is_automatic"); isAutomatic != "" {
-		filters["is_automatic"] = isAutomatic == "true"
-	}
-	if search := c.Query("search"); search != "" {
-		filters["search"] = search
-	}
-
-	backups, total, err := h.service.GetBackups(page, pageSize, filters)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"data":        backups,
-		"total":       total,
-		"page":        page,
-		"page_size":   pageSize,
-		"total_pages": (total + int64(pageSize) - 1) / int64(pageSize),
-	})
-}
-
-// GetBackup 获取单个备份
-func (h *ConfigurationHandler) GetBackup(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid backup ID"})
-		return
-	}
-
-	userID, exists := getUserIDString(c)
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	backup, err := h.service.GetBackupByID(uint(id), userID)
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Backup not found"})
-		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		}
-		return
-	}
-
-	c.JSON(http.StatusOK, backup)
-}
-
-// RestoreBackup 恢复备份
-func (h *ConfigurationHandler) RestoreBackup(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid backup ID"})
-		return
-	}
-
-	userID, exists := getUserIDString(c)
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	var req struct {
-		OverwriteExisting bool `json:"overwrite_existing"`
-		RestoreConfigs    bool `json:"restore_configs"`
-		RestoreEnvVars    bool `json:"restore_env_vars"`
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	options := map[string]interface{}{
-		"overwrite_existing": req.OverwriteExisting,
-		"restore_configs":    req.RestoreConfigs,
-		"restore_env_vars":   req.RestoreEnvVars,
-	}
-
-	err = h.service.RestoreBackup(uint(id), userID, options)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Backup restored successfully"})
-
-	if h.activityLogService != nil {
-		msg := fmt.Sprintf("Restored configuration backup ID: %d", id)
-		h.activityLogService.LogWithContext(c, "WARNING", "restore_backup", "config_backup", fmt.Sprintf("%d", id), msg, nil)
-	}
-}
-
-// DeleteBackup 删除备份
-func (h *ConfigurationHandler) DeleteBackup(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid backup ID"})
-		return
-	}
-
-	userID, exists := getUserIDString(c)
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	err = h.service.DeleteBackup(uint(id), userID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	if h.activityLogService != nil {
-		msg := fmt.Sprintf("Deleted configuration backup ID: %d", id)
-		h.activityLogService.LogWithContext(c, "WARNING", "delete_backup", "config_backup", fmt.Sprintf("%d", id), msg, nil)
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Backup deleted successfully"})
-}
-
 // ExportConfigurations 导出配置
 func (h *ConfigurationHandler) ExportConfigurations(c *gin.Context) {
 	userID, exists := getUserIDString(c)
@@ -897,7 +703,6 @@ func (h *ConfigurationHandler) CleanupOldData(c *gin.Context) {
 	var req struct {
 		AuditRetentionDays   int `json:"audit_retention_days"`
 		HistoryRetentionDays int `json:"history_retention_days"`
-		BackupRetentionDays  int `json:"backup_retention_days"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -912,9 +717,6 @@ func (h *ConfigurationHandler) CleanupOldData(c *gin.Context) {
 	}
 	if req.HistoryRetentionDays > 0 {
 		validator.ValidateRetentionDays("history_retention_days", req.HistoryRetentionDays)
-	}
-	if req.BackupRetentionDays > 0 {
-		validator.ValidateRetentionDays("backup_retention_days", req.BackupRetentionDays)
 	}
 	if validator.HasErrors() {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid retention days parameters", "details": validator.Errors()})
@@ -935,15 +737,6 @@ func (h *ConfigurationHandler) CleanupOldData(c *gin.Context) {
 		err := h.service.CleanupOldHistory(req.HistoryRetentionDays)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to cleanup history: " + err.Error()})
-			return
-		}
-	}
-
-	// 清理旧备份
-	if req.BackupRetentionDays > 0 {
-		err := h.service.CleanupOldBackups(req.BackupRetentionDays)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to cleanup backups: " + err.Error()})
 			return
 		}
 	}

@@ -189,47 +189,6 @@ type ConfigurationHistory struct {
 	EnvVar        *EnvironmentVariable `json:"env_var,omitempty" gorm:"foreignKey:EnvVarID"`
 }
 
-// ConfigurationBackup 配置备份模型
-type ConfigurationBackup struct {
-	ID          uint      `json:"id" gorm:"primaryKey"`
-	Name        string    `json:"name" gorm:"not null"`
-	Description string    `json:"description" gorm:"type:text"`
-	BackupType  string    `json:"backup_type" gorm:"not null;index"` // full, partial, auto
-	Scope       string    `json:"scope" gorm:"not null"`             // global, node, user
-	NodeID      *uint     `json:"node_id" gorm:"index"`
-	UserID      *string   `json:"user_id" gorm:"size:50;index"`
-	Data        string    `json:"data" gorm:"type:longtext;not null"` // JSON格式的配置数据
-	Checksum    string    `json:"checksum" gorm:"not null"`           // 数据校验和
-	Size        int64     `json:"size" gorm:"not null"`               // 备份大小（字节）
-	Version     string    `json:"version"`                            // 系统版本
-	IsAutomatic bool      `json:"is_automatic" gorm:"default:false"`  // 是否自动备份
-	CreatedAt   time.Time `json:"created_at"`
-	CreatedBy   string    `json:"created_by" gorm:"size:50;not null;index"`
-
-	// 关联
-	User  *User `json:"user,omitempty" gorm:"foreignKey:CreatedBy;references:ID"`
-	Node  *Node `json:"node,omitempty" gorm:"foreignKey:NodeID"`
-	Owner *User `json:"owner,omitempty" gorm:"foreignKey:UserID;references:ID"`
-}
-
-// GetParsedData 获取解析后的备份数据
-func (c *ConfigurationBackup) GetParsedData() (map[string]interface{}, error) {
-	var data map[string]interface{}
-	err := json.Unmarshal([]byte(c.Data), &data)
-	return data, err
-}
-
-// SetData 设置备份数据
-func (c *ConfigurationBackup) SetData(data map[string]interface{}) error {
-	jsonData, err := json.Marshal(data)
-	if err != nil {
-		return err
-	}
-	c.Data = string(jsonData)
-	c.Size = int64(len(jsonData))
-	return nil
-}
-
 // ConfigurationTemplate 配置模板模型
 type ConfigurationTemplate struct {
 	ID          uint      `json:"id" gorm:"primaryKey"`
@@ -292,7 +251,7 @@ type ConfigurationValidation struct {
 type ConfigurationAudit struct {
 	ID           uint      `json:"id" gorm:"primaryKey"`
 	Action       string    `json:"action" gorm:"not null;index"`        // view, create, update, delete, export, import
-	ResourceType string    `json:"resource_type" gorm:"not null;index"` // configuration, environment_variable, backup, template
+	ResourceType string    `json:"resource_type" gorm:"not null;index"` // configuration, environment_variable, template
 	ResourceID   uint      `json:"resource_id" gorm:"not null;index"`
 	ResourceName string    `json:"resource_name" gorm:"not null"`
 	Details      *string   `json:"details" gorm:"type:text"` // JSON格式的详细信息

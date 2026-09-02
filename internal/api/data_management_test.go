@@ -13,26 +13,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
-
-func TestCreateBackupRejectsUnsupportedIncrementalType(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	handler := NewDataManagementAPI()
-
-	body := []byte(`{"name":"nightly","backup_type":"incremental"}`)
-	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/data-management/backups", bytes.NewReader(body))
-	ctx.Request.Header.Set("Content-Type", "application/json")
-	ctx.Set("user_id", "user-1")
-
-	handler.CreateBackup(ctx)
-
-	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("expected status 400, got %d", recorder.Code)
-	}
-}
-
 func TestExportDataRejectsUnsupportedXLSXFormat(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
