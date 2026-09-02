@@ -139,7 +139,7 @@ function App() {
             </ProtectedRoute>
           }
         >
-              <NotFound />
+              <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="nodes" element={<NodeList />} />
           <Route path="nodes/:nodeName" element={<NodeDetail />} />
