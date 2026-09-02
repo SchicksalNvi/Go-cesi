@@ -1,7 +1,6 @@
-import dayjs from 'dayjs';
 import type { ExportType } from '@/api/dataManagement';
 
-export const BACKUP_POLL_INTERVAL = 5000;
+export const POLL_INTERVAL = 5000;
 
 export function buildExportLabel(exportType: ExportType) {
   const labels: Record<ExportType, string> = {
@@ -13,11 +12,6 @@ export function buildExportLabel(exportType: ExportType) {
   };
 
   return labels[exportType];
-}
-
-export function buildBackupName(backupType: 'full' | 'config_only') {
-  const prefix = backupType === 'config_only' ? 'config-backup' : 'full-backup';
-  return `${prefix}-${dayjs().format('YYYYMMDD-HHmmss')}`;
 }
 
 export function formatFileSize(fileSize: number) {

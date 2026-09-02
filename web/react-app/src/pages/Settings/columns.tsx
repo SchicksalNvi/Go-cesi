@@ -4,7 +4,6 @@ import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import type { TranslationKeys } from '@/i18n';
 import type {
-  BackupRecord,
   ExportFormat,
   ExportRecord,
   ExportType,
@@ -20,11 +19,6 @@ interface ExportColumnHandlers {
 }
 
 interface ImportColumnHandlers {
-  onDelete: (id: string) => void;
-}
-
-interface BackupColumnHandlers {
-  onDownload: (record: BackupRecord) => void;
   onDelete: (id: string) => void;
 }
 
@@ -252,116 +246,6 @@ export function buildImportColumns(
             {t.common.delete}
           </Button>
         </Popconfirm>
-      ),
-    },
-  ];
-}
-
-export function buildBackupColumns(
-  t: TranslationKeys,
-  handlers: BackupColumnHandlers
-): ColumnsType<BackupRecord> {
-  return [
-    {
-      title: t.settings.backupName,
-      dataIndex: 'name',
-      key: 'name',
-      render: (_value, record) => (
-        <div>
-          <div>{record.name}</div>
-          {record.description ? <Text type="secondary">{record.description}</Text> : null}
-        </div>
-      ),
-    },
-    {
-      title: t.settings.backupType,
-      dataIndex: 'backup_type',
-      key: 'backup_type',
-      width: 140,
-      render: (backupType: BackupRecord['backup_type']) =>
-        backupType === 'config_only' ? t.settings.configOnlyBackup : t.settings.fullBackup,
-    },
-    {
-      title: t.common.status,
-      dataIndex: 'status',
-      key: 'status',
-      width: 120,
-      render: (status: BackupRecord['status']) => {
-        const colorMap: Record<BackupRecord['status'], string> = {
-          pending: 'default',
-          running: 'processing',
-          completed: 'success',
-          failed: 'error',
-        };
-        const textMap: Record<BackupRecord['status'], string> = {
-          pending: t.settings.backupPending,
-          running: t.settings.backupRunning,
-          completed: t.settings.backupCompleted,
-          failed: t.settings.backupFailed,
-        };
-
-        return <Tag color={colorMap[status]}>{textMap[status]}</Tag>;
-      },
-    },
-    {
-      title: t.settings.backupSize,
-      dataIndex: 'file_size',
-      key: 'file_size',
-      width: 120,
-      render: (fileSize: number) => formatFileSize(fileSize),
-    },
-    {
-      title: t.settings.backupCreatedAt,
-      dataIndex: 'created_at',
-      key: 'created_at',
-      width: 180,
-      render: (createdAt: string) => dayjs(createdAt).format('YYYY-MM-DD HH:mm:ss'),
-    },
-    {
-      title: t.settings.backupCompletedAt,
-      dataIndex: 'completed_at',
-      key: 'completed_at',
-      width: 180,
-      render: (completedAt?: string | null) =>
-        completedAt ? dayjs(completedAt).format('YYYY-MM-DD HH:mm:ss') : '-',
-    },
-    {
-      title: t.settings.backupError,
-      dataIndex: 'error_msg',
-      key: 'error_msg',
-      ellipsis: true,
-      render: (errorMsg: string) => errorMsg || '-',
-    },
-    {
-      title: t.common.actions,
-      key: 'actions',
-      width: 160,
-      render: (_value, record) => (
-        <Space>
-          <Button
-            size="small"
-            icon={<Download size={14} strokeWidth={1.7} />}
-            onClick={() => handlers.onDownload(record)}
-            disabled={record.status !== 'completed'}
-          >
-            {t.common.export}
-          </Button>
-          <Popconfirm
-            title={t.settings.confirmDeleteBackup}
-            onConfirm={() => handlers.onDelete(record.id)}
-            okText={t.common.delete}
-            cancelText={t.common.cancel}
-          >
-            <Button
-              size="small"
-              danger
-              icon={<Trash2 size={14} strokeWidth={1.7} />}
-              disabled={record.status === 'running'}
-            >
-              {t.common.delete}
-            </Button>
-          </Popconfirm>
-        </Space>
       ),
     },
   ];

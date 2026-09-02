@@ -3,34 +3,6 @@ import apiClient from './client';
 export type ExportType = 'users' | 'logs' | 'configs' | 'processes' | 'all';
 export type ExportFormat = 'json' | 'csv';
 
-export interface BackupRecord {
-  id: string;
-  name: string;
-  description: string;
-  file_path: string;
-  file_size: number;
-  backup_type: 'full' | 'config_only';
-  status: 'pending' | 'running' | 'completed' | 'failed';
-  error_msg: string;
-  created_by: string;
-  created_at: string;
-  completed_at?: string | null;
-}
-
-export interface BackupRecordsResponse {
-  data: BackupRecord[];
-  total: number;
-  page: number;
-  page_size: number;
-  total_pages: number;
-}
-
-export interface CreateBackupRequest {
-  name: string;
-  description?: string;
-  backup_type: 'full' | 'config_only';
-}
-
 export interface ExportRecord {
   id: string;
   name: string;
@@ -107,30 +79,6 @@ export const dataManagementApi = {
 
   deleteImportRecord: (id: string) =>
     apiClient.delete<{ message: string }>(`/data-management/imports/${id}`),
-
-  createBackup: (data: CreateBackupRequest) =>
-    apiClient.post<BackupRecord>('/data-management/backups', data),
-
-  getBackupRecords: (page: number = 1, pageSize: number = 10) =>
-    apiClient.get<BackupRecordsResponse>(`/data-management/backups?page=${page}&page_size=${pageSize}`),
-
-  deleteBackupRecord: (id: string) =>
-    apiClient.delete<{ message: string }>(`/data-management/backups/${id}`),
-
-  async downloadBackupFile(id: string): Promise<Blob> {
-    const response = await fetch(`/api/data-management/backups/${id}/download`, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${localStorage.getItem('token')}`,
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to download backup');
-    }
-
-    return response.blob();
-  },
 
   async downloadExportFile(id: string): Promise<Blob> {
     const response = await fetch(`/api/data-management/exports/${id}/download`, {

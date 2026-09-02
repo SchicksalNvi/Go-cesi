@@ -16,12 +16,12 @@ import {
   Typography,
   Upload,
   Spin,
+  Tabs,
 } from 'antd';
 import {
   Save,
   Database,
   RefreshCw,
-  Plus,
   FileArchive,
   Inbox,
 } from 'lucide-react';
@@ -30,7 +30,6 @@ import { settingsApi, SystemSettings } from '@/api/settings';
 import {
   dataManagementApi,
   exportFormatOptions,
-  type BackupRecord,
   type ExportFormat,
   type ExportRecord,
   type ExportType,
@@ -39,8 +38,8 @@ import {
 import type { UploadFile } from 'antd/es/upload/interface';
 import type { TablePaginationConfig } from 'antd/es/table';
 import dayjs from 'dayjs';
-import { BACKUP_POLL_INTERVAL, buildBackupName } from './helpers';
-import { buildExportColumns, buildImportColumns, buildBackupColumns } from './columns';
+import { POLL_INTERVAL } from './helpers';
+import { buildExportColumns, buildImportColumns } from './columns';
 
 const { Paragraph } = Typography;
 const { TextArea } = Input;
@@ -54,9 +53,6 @@ const Settings: React.FC = () => {
   const [importsLoading, setImportsLoading] = useState(false);
   const [importSubmitting, setImportSubmitting] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
-  const [backupsLoading, setBackupsLoading] = useState(false);
-  const [backupSubmitting, setBackupSubmitting] = useState(false);
-  const [backupModalOpen, setBackupModalOpen] = useState(false);
   const [exports, setExports] = useState<ExportRecord[]>([]);
   const [exportPage, setExportPage] = useState(1);
   const [exportPageSize, setExportPageSize] = useState(10);
@@ -66,23 +62,15 @@ const Settings: React.FC = () => {
   const [importPageSize, setImportPageSize] = useState(10);
   const [importTotal, setImportTotal] = useState(0);
   const [importFileList, setImportFileList] = useState<UploadFile[]>([]);
-  const [backups, setBackups] = useState<BackupRecord[]>([]);
-  const [backupPage, setBackupPage] = useState(1);
-  const [backupPageSize, setBackupPageSize] = useState(10);
-  const [backupTotal, setBackupTotal] = useState(0);
   const [systemForm] = Form.useForm();
   const [exportForm] = Form.useForm();
   const [importForm] = Form.useForm();
-  const [backupForm] = Form.useForm();
 
   const hasActiveExports = exports.some(
     (record) => record.status === 'pending' || record.status === 'running'
   );
   const hasActiveImports = imports.some(
     (record) => record.status === 'pending' || record.status === 'running'
-  );
-  const hasActiveBackups = backups.some(
-    (backup) => backup.status === 'pending' || backup.status === 'running'
   );
 
   // 加载系统设置
@@ -122,12 +110,11 @@ const Settings: React.FC = () => {
       loadSystemSettings();
       loadExports(1, exportPageSize);
       loadImports(1, importPageSize);
-      loadBackups(1, backupPageSize);
     }
   }, [user, systemForm]);
 
   useEffect(() => {
-    if (!user?.is_admin || (!hasActiveBackups && !hasActiveExports && !hasActiveImports)) {
+    if (!user?.is_admin || (!hasActiveExports && !hasActiveImports)) {
       return;
     }
 
@@ -138,11 +125,10 @@ const Settings: React.FC = () => {
       if (hasActiveImports) {
         loadImports(importPage, importPageSize);
       }
-      loadBackups(backupPage, backupPageSize);
-    }, BACKUP_POLL_INTERVAL);
+    }, POLL_INTERVAL);
 
     return () => window.clearInterval(timer);
-  }, [user?.is_admin, hasActiveBackups, hasActiveExports, hasActiveImports, backupPage, backupPageSize, exportPage, exportPageSize, importPage, importPageSize]);
+  }, [user?.is_admin, hasActiveExports, hasActiveImports, exportPage, exportPageSize, importPage, importPageSize]);
 
   async function loadExports(page: number = exportPage, pageSize: number = exportPageSize) {
     setExportsLoading(true);
@@ -176,22 +162,6 @@ const Settings: React.FC = () => {
     }
   }
 
-  async function loadBackups(page: number = backupPage, pageSize: number = backupPageSize) {
-    setBackupsLoading(true);
-    try {
-      const response = await dataManagementApi.getBackupRecords(page, pageSize);
-      setBackups(response.data || []);
-      setBackupPage(response.page || page);
-      setBackupPageSize(response.page_size || pageSize);
-      setBackupTotal(response.total || 0);
-    } catch (error) {
-      console.error('Failed to load backups:', error);
-      message.error(t.settings.backupLoadFailed);
-    } finally {
-      setBackupsLoading(false);
-    }
-  }
-
   const handleSystemUpdate = async () => {
     try {
       const values = await systemForm.validateFields();
@@ -222,18 +192,9 @@ const Settings: React.FC = () => {
     }
   };
 
-  const openBackupModal = () => {
-    backupForm.setFieldsValue({
-      backup_type: 'full',
-      name: buildBackupName('full'),
-      description: '',
-    });
-    setBackupModalOpen(true);
-  };
-
   const openExportModal = () => {
     exportForm.setFieldsValue({
-      export_type: 'users',
+      export_type: 'configs',
       format: 'json',
     });
     setExportModalOpen(true);
@@ -305,63 +266,6 @@ const Settings: React.FC = () => {
     }
   };
 
-  const handleBackupTypeChange = (backupType: 'full' | 'config_only') => {
-    const currentName = backupForm.getFieldValue('name');
-    if (!currentName || currentName.startsWith('full-backup-') || currentName.startsWith('config-backup-')) {
-      backupForm.setFieldValue('name', buildBackupName(backupType));
-    }
-  };
-
-  const handleCreateBackup = async () => {
-    try {
-      const values = await backupForm.validateFields();
-      setBackupSubmitting(true);
-
-      await dataManagementApi.createBackup(values);
-      message.success(t.settings.databaseBackupStarted);
-      setBackupModalOpen(false);
-      backupForm.resetFields();
-      loadBackups(1, backupPageSize);
-    } catch (error: any) {
-      if (error?.errorFields) {
-        return;
-      }
-
-      console.error('Failed to create backup:', error);
-      message.error(error.response?.data?.error || t.settings.backupCreateFailed);
-    } finally {
-      setBackupSubmitting(false);
-    }
-  };
-
-  const handleDownloadBackup = async (record: BackupRecord) => {
-    try {
-      const blob = await dataManagementApi.downloadBackupFile(record.id);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = record.file_path?.split('/').pop() || `${record.name}.zip`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error('Failed to download backup:', error);
-      message.error(t.settings.backupDownloadFailed);
-    }
-  };
-
-  const handleDeleteBackup = async (id: string) => {
-    try {
-      await dataManagementApi.deleteBackupRecord(id);
-      message.success(t.settings.backupDeleteSuccess);
-      loadBackups(backupPage, backupPageSize);
-    } catch (error: any) {
-      console.error('Failed to delete backup:', error);
-      message.error(error.response?.data?.error || t.settings.backupDeleteFailed);
-    }
-  };
-
   const handleDownloadExport = async (record: ExportRecord) => {
     try {
       const blob = await dataManagementApi.downloadExportFile(record.id);
@@ -413,12 +317,6 @@ const Settings: React.FC = () => {
     loadImports(nextPage, nextPageSize);
   };
 
-  const handleBackupTableChange = (pagination: TablePaginationConfig) => {
-    const nextPage = pagination.current || 1;
-    const nextPageSize = pagination.pageSize || backupPageSize;
-    loadBackups(nextPage, nextPageSize);
-  };
-
   const exportColumns = useMemo(
     () => buildExportColumns(t, { onDownload: handleDownloadExport, onDelete: handleDeleteExport }),
     [t]
@@ -426,11 +324,6 @@ const Settings: React.FC = () => {
 
   const importColumns = useMemo(
     () => buildImportColumns(t, { onDelete: handleDeleteImport }),
-    [t]
-  );
-
-  const backupColumns = useMemo(
-    () => buildBackupColumns(t, { onDownload: handleDownloadBackup, onDelete: handleDeleteBackup }),
     [t]
   );
 
@@ -536,181 +429,132 @@ const Settings: React.FC = () => {
               >
                 {t.settings.saveSettings}
               </Button>
-              <Button
-                icon={<Database size={14} strokeWidth={1.7} />}
-                onClick={openBackupModal}
-              >
-                {t.settings.backupNow}
-              </Button>
+              
             </Space>
           </Form.Item>
         </Form>
       </Card>
 
       <Card
-        title={t.settings.exportManagementTitle}
-        extra={
-          <Space>
-            <Button
-              icon={<RefreshCw size={14} strokeWidth={1.7} />}
-              onClick={() => loadExports(exportPage, exportPageSize)}
-              loading={exportsLoading}
-            >
-              {t.common.refresh}
-            </Button>
-            <Button
-              type="primary"
-              icon={<FileArchive size={14} strokeWidth={1.7} />}
-              onClick={openExportModal}
-            >
-              {t.settings.createExport}
-            </Button>
-          </Space>
-        }
+        title={t.settings.dataManagementTitle}
         style={{ marginBottom: 24 }}
       >
-        <Alert
-          message={t.settings.exportData}
-          description={t.settings.exportManagementDesc}
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-        />
+        <Tabs
+          defaultActiveKey="exports"
+          items={[
+            {
+              key: 'exports',
+              label: t.settings.exportManagementTitle,
+              children: (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                    <Button
+                      icon={<RefreshCw size={14} strokeWidth={1.7} />}
+                      onClick={() => loadExports(exportPage, exportPageSize)}
+                      loading={exportsLoading}
+                    >
+                      {t.common.refresh}
+                    </Button>
+                    <Button
+                      type="primary"
+                      icon={<FileArchive size={14} strokeWidth={1.7} />}
+                      onClick={openExportModal}
+                    >
+                      {t.settings.createExport}
+                    </Button>
+                  </div>
 
-        {hasActiveExports ? (
-          <Paragraph type="secondary" style={{ marginTop: 0 }}>
-            {t.settings.exportPollingHint}
-          </Paragraph>
-        ) : null}
+                  <Alert
+                    message={t.settings.exportData}
+                    description={t.settings.exportManagementDesc}
+                    type="info"
+                    showIcon
+                  />
 
-        <Table
-          columns={exportColumns}
-          dataSource={exports}
-          rowKey="id"
-          loading={exportsLoading}
-          pagination={{
-            current: exportPage,
-            pageSize: exportPageSize,
-            total: exportTotal,
-            showSizeChanger: true,
-            pageSizeOptions: ['10', '20', '50'],
-          }}
-          locale={{
-            emptyText: t.settings.exportNoData,
-          }}
-          onChange={handleExportTableChange}
-          scroll={{ x: 1250 }}
-        />
-      </Card>
+                  {hasActiveExports ? (
+                    <Paragraph type="secondary" style={{ marginTop: 0 }}>
+                      {t.settings.exportPollingHint}
+                    </Paragraph>
+                  ) : null}
 
-      <Card
-        title={t.settings.importManagementTitle}
-        extra={
-          <Space>
-            <Button
-              icon={<RefreshCw size={14} strokeWidth={1.7} />}
-              onClick={() => loadImports(importPage, importPageSize)}
-              loading={importsLoading}
-            >
-              {t.common.refresh}
-            </Button>
-            <Button
-              type="primary"
-              icon={<Inbox size={14} strokeWidth={1.7} />}
-              onClick={openImportModal}
-            >
-              {t.settings.createImport}
-            </Button>
-          </Space>
-        }
-        style={{ marginBottom: 24 }}
-      >
-        <Alert
-          message={t.settings.importData}
-          description={t.settings.importManagementDesc}
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-        />
+                  <Table
+                    columns={exportColumns}
+                    dataSource={exports}
+                    rowKey="id"
+                    loading={exportsLoading}
+                    pagination={{
+                      current: exportPage,
+                      pageSize: exportPageSize,
+                      total: exportTotal,
+                      showSizeChanger: true,
+                      pageSizeOptions: ['10', '20', '50'],
+                    }}
+                    locale={{
+                      emptyText: t.settings.exportNoData,
+                    }}
+                    onChange={handleExportTableChange}
+                    scroll={{ x: 1250 }}
+                  />
+                </div>
+              ),
+            },
+            {
+              key: 'imports',
+              label: t.settings.importManagementTitle,
+              children: (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                    <Button
+                      icon={<RefreshCw size={14} strokeWidth={1.7} />}
+                      onClick={() => loadImports(importPage, importPageSize)}
+                      loading={importsLoading}
+                    >
+                      {t.common.refresh}
+                    </Button>
+                    <Button
+                      type="primary"
+                      icon={<Inbox size={14} strokeWidth={1.7} />}
+                      onClick={openImportModal}
+                    >
+                      {t.settings.createImport}
+                    </Button>
+                  </div>
 
-        {hasActiveImports ? (
-          <Paragraph type="secondary" style={{ marginTop: 0 }}>
-            {t.settings.importPollingHint}
-          </Paragraph>
-        ) : null}
+                  <Alert
+                    message={t.settings.importData}
+                    description={t.settings.importManagementDesc}
+                    type="info"
+                    showIcon
+                  />
 
-        <Table
-          columns={importColumns}
-          dataSource={imports}
-          rowKey="id"
-          loading={importsLoading}
-          pagination={{
-            current: importPage,
-            pageSize: importPageSize,
-            total: importTotal,
-            showSizeChanger: true,
-            pageSizeOptions: ['10', '20', '50'],
-          }}
-          locale={{
-            emptyText: t.settings.importNoData,
-          }}
-          onChange={handleImportTableChange}
-          scroll={{ x: 1450 }}
-        />
-      </Card>
+                  {hasActiveImports ? (
+                    <Paragraph type="secondary" style={{ marginTop: 0 }}>
+                      {t.settings.importPollingHint}
+                    </Paragraph>
+                  ) : null}
 
-      <Card
-        title={t.settings.backupManagementTitle}
-        extra={
-          <Space>
-            <Button
-              icon={<RefreshCw size={14} strokeWidth={1.7} />}
-              onClick={() => loadBackups(backupPage, backupPageSize)}
-              loading={backupsLoading}
-            >
-              {t.common.refresh}
-            </Button>
-            <Button
-              type="primary"
-              icon={<Plus size={14} strokeWidth={1.7} />}
-              onClick={openBackupModal}
-            >
-              {t.settings.createBackup}
-            </Button>
-          </Space>
-        }
-      >
-        <Alert
-          message={t.settings.backup}
-          description={t.settings.backupManagementDesc}
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-        />
-
-        {hasActiveBackups ? (
-          <Paragraph type="secondary" style={{ marginTop: 0 }}>
-            {t.settings.backupPollingHint}
-          </Paragraph>
-        ) : null}
-
-        <Table
-          columns={backupColumns}
-          dataSource={backups}
-          rowKey="id"
-          loading={backupsLoading}
-          pagination={{
-            current: backupPage,
-            pageSize: backupPageSize,
-            total: backupTotal,
-            showSizeChanger: true,
-            pageSizeOptions: ['10', '20', '50'],
-          }}
-          locale={{
-            emptyText: t.settings.backupNoData,
-          }}
-          onChange={handleBackupTableChange}
-          scroll={{ x: 1100 }}
+                  <Table
+                    columns={importColumns}
+                    dataSource={imports}
+                    rowKey="id"
+                    loading={importsLoading}
+                    pagination={{
+                      current: importPage,
+                      pageSize: importPageSize,
+                      total: importTotal,
+                      showSizeChanger: true,
+                      pageSizeOptions: ['10', '20', '50'],
+                    }}
+                    locale={{
+                      emptyText: t.settings.importNoData,
+                    }}
+                    onChange={handleImportTableChange}
+                    scroll={{ x: 1450 }}
+                  />
+                </div>
+              ),
+            },
+          ]}
         />
       </Card>
 
@@ -732,10 +576,7 @@ const Settings: React.FC = () => {
           >
             <Select
               options={[
-                { label: t.settings.users, value: 'users' },
-                { label: t.settings.logs, value: 'logs' },
                 { label: t.settings.configs, value: 'configs' },
-                { label: t.settings.processes, value: 'processes' },
                 { label: t.settings.all, value: 'all' },
               ]}
               onChange={handleExportTypeChange}
@@ -747,7 +588,7 @@ const Settings: React.FC = () => {
             noStyle
           >
             {({ getFieldValue }) => {
-              const exportType = (getFieldValue('export_type') || 'users') as ExportType;
+              const exportType = (getFieldValue('export_type') || 'configs') as ExportType;
               return (
                 <Form.Item
                   name="format"
@@ -808,47 +649,6 @@ const Settings: React.FC = () => {
         </Form>
       </Modal>
 
-      <Modal
-        title={t.settings.createBackup}
-        open={backupModalOpen}
-        onOk={handleCreateBackup}
-        onCancel={() => setBackupModalOpen(false)}
-        confirmLoading={backupSubmitting}
-        okText={t.common.create}
-        cancelText={t.common.cancel}
-        destroyOnClose
-      >
-        <Form form={backupForm} layout="vertical">
-          <Form.Item
-            name="backup_type"
-            label={t.settings.backupType}
-            rules={[{ required: true, message: t.settings.selectBackupType }]}
-          >
-            <Select
-              options={[
-                { label: t.settings.fullBackup, value: 'full' },
-                { label: t.settings.configOnlyBackup, value: 'config_only' },
-              ]}
-              onChange={handleBackupTypeChange}
-            />
-          </Form.Item>
-
-          <Form.Item
-            name="name"
-            label={t.settings.backupName}
-            rules={[{ required: true, message: t.settings.enterBackupName }]}
-          >
-            <Input maxLength={100} />
-          </Form.Item>
-
-          <Form.Item
-            name="description"
-            label={t.settings.backupDescription}
-          >
-            <TextArea rows={3} maxLength={500} />
-          </Form.Item>
-        </Form>
-      </Modal>
     </div>
   );
 };
