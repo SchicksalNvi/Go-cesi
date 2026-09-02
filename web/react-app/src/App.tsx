@@ -19,6 +19,7 @@ const LogList = lazy(() => import('@/pages/Logs'));
 const Settings = lazy(() => import('@/pages/Settings'));
 const DiscoveryPage = lazy(() => import('@/pages/Discovery'));
 const ProfilePage = lazy(() => import('@/pages/Profile'));
+const NotFound = lazy(() => import('@/pages/NotFound'));
 
 // Protected Route Component
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -41,7 +42,7 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
 
   if (!user?.is_admin) {
     // Non-admin users are redirected to the dashboard
-    return <Navigate to="/dashboard" replace />;
+              <NotFound />
   }
 
   return <>{children}</>;
@@ -138,7 +139,7 @@ function App() {
             </ProtectedRoute>
           }
         >
-          <Route index element={<Navigate to="/dashboard" replace />} />
+              <NotFound />
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="nodes" element={<NodeList />} />
           <Route path="nodes/:nodeName" element={<NodeDetail />} />
@@ -152,12 +153,12 @@ function App() {
           <Route path="settings" element={<AdminRoute><Settings /></AdminRoute>} />
         </Route>
         
-        {/* 未匹配的路由：已登录去 dashboard，未登录去 login */}
+        {/* 未匹配的路由:品牌化 404 页(未登录去 login) */}
         <Route 
           path="*" 
           element={
             isAuthenticated ? (
-              <Navigate to="/dashboard" replace />
+              <NotFound />
             ) : (
               <Navigate to="/login" replace />
             )

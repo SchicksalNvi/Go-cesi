@@ -318,7 +318,7 @@ export default function Dashboard() {
               <div className="display" style={{ fontSize: 15 }}>{t.dashboard.activityOverview}</div>
               <Button type="link" style={{ color: 'var(--acc-violet)', padding: 0 }} onClick={() => navigate('/logs')}>
                 {t.dashboard.viewAllLogs}
-                <ArrowRight size={14} strokeWidth={1.8} />
+                <ArrowRight size={14} strokeWidth={1.7} />
               </Button>
             </div>
 
@@ -341,7 +341,7 @@ export default function Dashboard() {
                         border: `1px solid ${row.accent}22`,
                       }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 7 }}>
-                          <row.icon size={13} strokeWidth={1.8} style={{ color: row.accent }} />
+                          <row.icon size={13} strokeWidth={1.7} style={{ color: row.accent }} />
                           <span style={{ fontSize: 11, color: 'var(--text-low)' }}>{row.label}</span>
                         </div>
                         <span className="display" style={{ fontSize: 21, color: row.accent }}>{row.value}</span>
@@ -353,7 +353,7 @@ export default function Dashboard() {
                 <Row gutter={16}>
                   <Col xs={24} md={12}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
-                      <Activity size={13} strokeWidth={1.8} style={{ color: 'var(--acc-violet)' }} />
+                      <Activity size={13} strokeWidth={1.7} style={{ color: 'var(--acc-violet)' }} />
                       <Text style={{ color: 'var(--text-hi)', fontSize: 13 }}>{t.dashboard.topActions}</Text>
                     </div>
                     <List
@@ -372,7 +372,7 @@ export default function Dashboard() {
                   </Col>
                   <Col xs={24} md={12}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
-                      <Activity size={13} strokeWidth={1.8} style={{ color: 'var(--acc-cyan)' }} />
+                      <Activity size={13} strokeWidth={1.7} style={{ color: 'var(--acc-cyan)' }} />
                       <Text style={{ color: 'var(--text-hi)', fontSize: 13 }}>{t.dashboard.topUsers}</Text>
                     </div>
                     <List
@@ -404,7 +404,7 @@ export default function Dashboard() {
               </div>
               <Button type="link" style={{ color: 'var(--acc-violet)', padding: 0 }} onClick={() => navigate('/logs')}>
                 {t.common.view}
-                <ArrowRight size={14} strokeWidth={1.8} />
+                <ArrowRight size={14} strokeWidth={1.7} />
               </Button>
             </div>
 

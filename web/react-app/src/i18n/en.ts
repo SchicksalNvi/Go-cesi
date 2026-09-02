@@ -43,6 +43,12 @@ export const en = {
     export: 'Export',
     import: 'Import',
   },
+  notFound: {
+    kicker: 'PAGE NOT FOUND',
+    message: 'The page you are looking for does not exist, was moved, or never existed. Check the address or head back somewhere familiar.',
+    back: 'Go back',
+    home: 'Back to console',
+  },
 
   // Navigation & Layout
   nav: {

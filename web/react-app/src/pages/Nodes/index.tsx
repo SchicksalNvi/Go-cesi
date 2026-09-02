@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
 import { Lightbulb } from 'lucide-react';
-import { Card, Button, Spin, Empty, message } from 'antd';
+import { Card, Button, Spin, Skeleton, Empty, message } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { nodesApi } from '@/api/nodes';
 import { useStore } from '@/store';
@@ -121,8 +121,8 @@ function NodeList() {
 
   if (loading && nodes.length === 0) {
     return (
-      <div style={{ textAlign: 'center', padding: 50 }}>
-        <Spin size="large" />
+      <div style={{ padding: 8 }}>
+        <Skeleton active paragraph={{ rows: 6 }} style={{ padding: 16 }} />
       </div>
     );
   }

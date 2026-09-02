@@ -462,3 +462,23 @@ code, pre, .mono {
   outline: 2px solid var(--acc-violet);
   outline-offset: 2px;
 }
+
+/* 数据密集型界面:数字等宽(表格/统计/计数不跳动) */
+.display,
+.mono,
+.ant-statistic-content,
+.ant-table-tbody > tr > td {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 无障碍:尊重系统减少动效偏好,关闭所有动画/过渡 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

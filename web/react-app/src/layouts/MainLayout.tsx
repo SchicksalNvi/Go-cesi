@@ -248,7 +248,7 @@ export default function MainLayout() {
               ...(collapsed ? { justifyContent: 'center', padding: '10px 0' } : {}),
             }}
           >
-            <Activity size={15} strokeWidth={1.8} style={{ color: 'var(--ok)' }} />
+            <Activity size={15} strokeWidth={1.7} style={{ color: 'var(--ok)' }} />
             {!collapsed && (
               <span style={{ fontSize: 11.5, color: 'var(--text-low)', fontFamily: 'var(--font-mono)' }}>
                 OBSIDIAN CORE

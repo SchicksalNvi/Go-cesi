@@ -3,6 +3,7 @@ import {
   Card,
   Input,
   Spin,
+  Skeleton,
   Empty,
   Space,
   Button,
@@ -177,9 +178,13 @@ const ProcessesPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div style={{ textAlign: 'center', padding: '50px' }}>
-        <Spin size="large" />
-      </div>
+      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+        {[0, 1, 2, 3].map((i) => (
+          <Card key={i} data-skeleton>
+            <Skeleton active paragraph={{ rows: 1 }} title={{ width: '40%' }} />
+          </Card>
+        ))}
+      </Space>
     );
   }
 

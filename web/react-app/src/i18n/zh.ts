@@ -45,6 +45,12 @@ export const zh: TranslationKeys = {
     export: '导出',
     import: '导入',
   },
+  notFound: {
+    kicker: 'PAGE NOT FOUND',
+    message: '你要找的页面不存在、被移动或从未存在过。检查地址或回到熟悉的页面。',
+    back: '返回上一页',
+    home: '回到控制台',
+  },
 
   // Navigation & Layout
   nav: {
